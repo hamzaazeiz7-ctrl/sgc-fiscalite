@@ -48,7 +48,7 @@ function defaultRoles() {
     { id: 'r-lect', name: 'Lecture seule', perms: mkPerm({ ech: { v: 1 }, ctl: { v: 1 }, rap: { v: 1 } }), u: 1 }
   ];
 }
-const COLLS = ['roles', 'users', 'companies', 'ech', 'ctl'];
+const COLLS = ['roles', 'users', 'companies', 'rec', 'ech', 'ctl'];
 const DELAYS_DEF = { to_regul: 30, tribunal: 60, verif_opp: 30, verif_rep: 90, verif_opp2: 15 };
 function normalize(d) {
   d.meta = d.meta || { id: uid(), salt: b64(crypto.getRandomValues(new Uint8Array(16))) };
@@ -167,7 +167,7 @@ async function syncNow(manual) {
 const linkCode = () => btoa(unescape(encodeURIComponent(JSON.stringify({ o: cfg.gh.owner, r: cfg.gh.repo, b: cfg.gh.branch || 'main', p: cfg.gh.path, t: cfg.gh.token, k: cfg.pass }))));
 const parseLink = s => { const j = JSON.parse(decodeURIComponent(escape(atob(s.trim())))); return { gh: { owner: j.o, repo: j.r, branch: j.b || 'main', path: j.p, token: j.t }, pass: j.k }; };
 
-/* ---------- calendrier fiscal tunisien ---------- */
+/* ---------- obligations fiscales (calculées, jamais "générées") ---------- */
 const FIXED_HOL = ['01-01', '01-14', '03-20', '04-09', '05-01', '07-25', '08-13', '10-15'];
 const isHoliday = iso => FIXED_HOL.includes(iso.slice(5)) || (db?.settings?.holidays || []).includes(iso);
 function nextWorking(iso) {
@@ -175,39 +175,68 @@ function nextWorking(iso) {
   while (n < 20) { const wd = new Date(toUTC(iso)).getUTCDay(); if (wd === 0 || wd === 6 || isHoliday(iso)) { iso = addDays(iso, 1); n++; } else break; }
   return iso;
 }
-const CATS = { mensuelle: 'Mensuelle', trimestrielle: 'Trimestrielle', annuelle: 'Annuelle', autre: 'Autre' };
-/* Règles : dates issues des agendas fiscaux DGI 2026 ; "ok:0" = à confirmer */
-function ruleList(c, Y) {
-  const out = [], mk = (code, label, cat, period, due, src, ok = 1) => out.push({ code, label, cat, period, due, src, ok });
-  const tri = c.freq === 'trimestrielle';
-  if (!tri) {
-    for (let k = 1; k <= 12; k++) {
-      const pm = k === 1 ? 12 : k - 1, py = k === 1 ? Y - 1 : Y, day = c.pm ? (c.tele ? 20 : 28) : 15;
-      mk('DMI', `Déclaration mensuelle — ${MOIS[pm - 1]} ${py}`, 'mensuelle', `${py}-${pad(pm)}`, ISO(Y, k, day), 'Agenda DGI');
+const KINDS = { M: 'Déclaration mensuelle', T: 'Déclaration trimestrielle', AP: 'Acompte provisionnel', IS: "Déclaration annuelle de l'IS", DE: "Déclaration de l'employeur", CNSS: 'CNSS (trimestrielle)', IRPP: "Impôt sur le revenu (annuel)" };
+const IRPP_OPT = [['commercant', 'Commerçant (25 avril)'], ['industriel', 'Industriel, prestataire ou profession non commerciale (25 mai)'], ['artisan', 'Métier artisanal traditionnel (25 juillet)'], ['agricole', 'Exploitation agricole ou pêche (25 août)']];
+const IRPP_DATE = { commercant: [4, 25], industriel: [5, 25], artisan: [7, 25], agricole: [8, 25] };
+const QTR = ['T1', 'T2', 'T3', 'T4'];
+const isPM = c => c.type !== 'Personne physique';
+const recKey = (co, kind, y, p) => `${co}|${kind}|${y}|${p}`;
+function oLabel(kind, y, p) {
+  switch (kind) {
+    case 'M': return `Déclaration mensuelle — ${MOIS[p - 1]} ${y}`;
+    case 'T': return `Déclaration trimestrielle — ${QTR[p - 1]} ${y}`;
+    case 'CNSS': return `CNSS — ${QTR[p - 1]} ${y}`;
+    case 'AP': return `${p === 1 ? '1er' : p + 'e'} acompte provisionnel ${y}`;
+    case 'IS': return `Déclaration annuelle de l'IS — exercice ${y}`;
+    case 'DE': return `Déclaration de l'employeur — ${y}`;
+    case 'IRPP': return `Impôt sur le revenu — ${y}`;
+  } return kind;
+}
+/* Dates : agendas DGI 2026 et référentiel SGC Pilot. ok:0 = à confirmer chaque année */
+function oDue(c, kind, y, p) {
+  const day = isPM(c) ? (c.tele ? 20 : 28) : 15; let d;
+  if (kind === 'M') d = p === 12 ? ISO(y + 1, 1, day) : ISO(y, p + 1, day);
+  else if (kind === 'T' || kind === 'CNSS') d = p === 4 ? ISO(y + 1, 1, 15) : ISO(y, p * 3 + 1, 15);
+  else if (kind === 'AP') d = ISO(y, [6, 9, 12][p - 1], isPM(c) ? 28 : 25);
+  else if (kind === 'IS') { const cm = +c.clotM || 12, a = cm + ((c.cac || c.expo) ? 6 : 3), yy = y + Math.floor((a - 1) / 12); d = ISO(yy, ((a - 1) % 12) + 1, 25); }
+  else if (kind === 'DE') d = ISO(y + 1, 4, 30);
+  else if (kind === 'IRPP') { const [m, j] = IRPP_DATE[c.irpp || 'industriel']; d = ISO(y + 1, m, j); }
+  return nextWorking(d);
+}
+function oList(c) { // modèles d'obligations applicables à une société
+  const a = [];
+  if (c.statut === 'Archivé') return a;
+  if ((c.decl || 'Mensuelle') === 'Mensuelle') for (let p = 1; p <= 12; p++) a.push(['M', p]); else for (let p = 1; p <= 4; p++) a.push(['T', p]);
+  if (c.cnss) for (let p = 1; p <= 4; p++) a.push(['CNSS', p]);
+  if (isPM(c)) { for (let p = 1; p <= 3; p++) a.push(['AP', p]); a.push(['IS', 0]); } else { for (let p = 1; p <= 3; p++) a.push(['AP', p]); a.push(['IRPP', 0]); }
+  if (c.emp) a.push(['DE', 0]);
+  return a;
+}
+function obls(years, cos) {
+  const out = [], recs = new Map(live(db.rec).map(r => [r.id, r]));
+  for (const c of cos) {
+    const start = c.dateEntree || '0000-01-01';
+    for (const y of years) for (const [kind, p] of oList(c)) {
+      const due = oDue(c, kind, y, p), key = recKey(c.id, kind, y, p), rec = recs.get(key);
+      if (due < start && !(rec && rec.versions && rec.versions.length)) continue;
+      out.push({ key, co: c.id, kind, y, p, due, label: oLabel(kind, y, p), rec });
     }
-  } else {
-    [[1, 'T4', Y - 1], [4, 'T1', Y], [7, 'T2', Y], [10, 'T3', Y]].forEach(([m, t, py]) => mk('DTRI', `Déclaration trimestrielle — ${t} ${py}`, 'trimestrielle', `${py}-${t}`, ISO(Y, m, 15), 'Agenda DGI'));
   }
-  if (c.cnss) [[1, 'T4', Y - 1], [4, 'T1', Y], [7, 'T2', Y], [10, 'T3', Y]].forEach(([m, t, py]) => mk('CNSS', `CNSS — déclaration des salaires et cotisations ${t} ${py}`, 'trimestrielle', `${py}-${t}`, ISO(Y, m, 15), 'CNSS (prorogations possibles)'));
-  [[6, '1er'], [9, '2e'], [12, '3e']].forEach(([m, n], i) => mk('AP' + (i + 1), `${n} acompte provisionnel ${Y}`, 'trimestrielle', `${Y}-AP${i + 1}`, ISO(Y, m, c.pm ? 28 : 25), 'Agenda DGI'));
-  if (c.pm) {
-    const cm = +c.close || 12, delay = (c.cac || c.expo) ? 6 : 4;
-    for (const ye of [Y - 1, Y]) { const a = cm + delay, y2 = ye + Math.floor((a - 1) / 12), m2 = ((a - 1) % 12) + 1; if (y2 === Y) mk('IS', `Déclaration annuelle de l'IS — exercice clos le ${pad(cm)}/${ye}`, 'annuelle', `${ye}-IS`, ISO(Y, m2, 25), 'Agenda DGI'); }
-  } else mk('IR', `Déclaration annuelle de l'impôt sur le revenu — ${Y - 1}`, 'annuelle', `${Y - 1}-IR`, ISO(Y, 5, 25), "Agenda DGI mai 2026 (non-salariés)");
-  if (c.emp) mk('DE', `Déclaration de l'employeur — ${Y - 1}`, 'annuelle', `${Y - 1}-DE`, ISO(Y, 4, 30), 'Agenda DGI avr. 2026 — à confirmer chaque année', 0);
-  if (!c.pm) mk('IF', `Déclaration de l'impôt sur la fortune — ${Y}`, 'annuelle', `${Y}-IF`, ISO(Y, 6, 30), 'Agenda DGI juin 2026 — à confirmer', 0);
   return out;
 }
-function genEch(coId, Y, pastDone) {
-  const c = db.companies.find(x => x.id === coId); if (!c) return 0;
-  const have = new Set(db.ech.map(e => e.id)); let n = 0;
-  for (const r of ruleList(c, Y)) {
-    const id = `${coId}|${r.code}|${r.period}`; if (have.has(id)) continue;
-    db.ech.push(touch({ id, co: coId, code: r.code, label: r.label, cat: r.cat, period: r.period, due: nextWorking(r.due), rawDue: r.due, amount: '', st: (pastDone && nextWorking(r.due) < todayISO()) ? 'done' : 'todo', paidOn: '', ref: '', note: (pastDone && nextWorking(r.due) < todayISO() ? 'Marquée déposée à la génération (échéance passée). ' : '') + (r.ok ? '' : 'Date à confirmer : ' + r.src), src: r.src, auto: 1 })); n++;
-  }
-  return n;
+const lastV = r => r && r.versions && r.versions.length ? r.versions[r.versions.length - 1] : null;
+const num = v => (v === '' || v == null || isNaN(v)) ? 0 : +v;
+const r3 = x => Math.round((x + Number.EPSILON) * 1000) / 1000;
+function oState(o) {
+  const r = o.rec, vs = (r && r.versions) || [], v0 = vs[0], filed = !!(v0 && v0.depDate), t = todayISO();
+  const due = vs.length ? recTotal(r.kind || o.kind, vs[vs.length - 1].vals, vs[vs.length - 1]) : 0, paid = r3(vs.reduce((a, v) => a + num(v.paid), 0)), solde = filed ? r3(Math.max(0, due - paid)) : 0, n = diffDays(o.due, t);
+  let st;
+  if (!filed) st = n < 0 ? 'late' : n <= 7 ? 'soon' : 'ok';
+  else if (solde > 0.0005) st = n < 0 ? 'unpaid' : 'topay'; else st = 'done';
+  return { st, filed, due, paid, solde, rects: Math.max(0, vs.length - 1), n };
 }
-const status = e => e.st === 'done' ? 'paid' : (diffDays(e.due, todayISO()) < 0 ? 'late' : diffDays(e.due, todayISO()) <= 7 ? 'soon' : 'ok');
+const ST_LAB = { late: ['En retard', 'b-red'], soon: ['À déposer vite', 'b-org'], ok: ['À venir', 'b-blu'], topay: ['Déposée — à payer', 'b-gold'], unpaid: ['Déposée — impayée', 'b-red'], done: ['Réglée', 'b-grn'] };
+const ST_ROW = { late: 's-late', soon: 's-soon', ok: 's-ok', topay: 's-soon', unpaid: 's-late', done: 's-paid' };
 
 /* ---------- procédures de contrôle ---------- */
 const CTL_TYPES = {

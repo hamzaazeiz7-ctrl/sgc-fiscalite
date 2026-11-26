@@ -21,7 +21,7 @@ const IC = {
 };
 const ic = n => `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${IC[n] || ''}</svg>`;
 const logo = (kind, cls = '') => `<img class="lg-l ${cls}" src="logos/sgc-${kind}-couleur.png" alt="Sterling Gate Consulting"><img class="lg-d ${cls}" src="logos/sgc-${kind}-blanc.png" alt="">`;
-const S = { page: 'home', sub: '', co: 'all', hz: 6, f: { cat: 'all', st: 'all', q: '', y: String(new Date().getFullYear()) }, cf: { st: 'open', q: '' }, cal: { y: new Date().getFullYear(), m: new Date().getMonth() + 1, day: '', mode: 'grille' }, lf: { u: '', a: '', q: '' } };
+const S = { page: 'home', sub: '', co: 'all', hz: 6, y: new Date().getFullYear(), pk: ['M'], f: { cat: 'all', st: 'all', q: '', y: String(new Date().getFullYear()) }, cf: { st: 'open', q: '' }, cal: { y: new Date().getFullYear(), m: new Date().getMonth() + 1, day: '', mode: 'grille' }, lf: { u: '', a: '', q: '' } };
 const ACT = {};
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -84,10 +84,10 @@ function renderAuth(mode = 'login') {
   const sf = $('#sf'); if (sf) sf.onsubmit = async e => {
     e.preventDefault(); const d = formData(e.target);
     if (d.sp !== d.sp2) return toast("Les deux mots de passe de l'espace diffèrent", 1);
-    const cred = await mkCred(d.pw), co = touch({ id: uid(), name: d.co.trim(), pm: true, tele: true, freq: 'mensuelle', close: 12, cnss: true, emp: true });
+    const cred = await mkCred(d.pw), co = touch({ id: uid(), code: 'C01', name: d.co.trim(), type: 'Personne morale', decl: 'Mensuelle', tele: true, cnss: false, emp: true, clotM: 12, statut: 'Actif', dateEntree: todayISO().slice(0, 8) + '01' });
     db = normalize({ roles: defaultRoles(), users: [touch({ id: uid(), name: d.name.trim(), email: d.email.trim(), ...cred, platform: true, active: true, mem: [] })], companies: [co] });
     cfg = { pass: d.sp }; saveCfg(); LS.set(KEY.db, db); me = db.users[0]; SS.set(KEY.sess, { id: me.id, exp: Date.now() + 864e5 });
-    genEch(co.id, new Date().getFullYear(), true); logAct('Création de l\'espace', 'création', 'adm'); startApp();
+     logAct('Création de l\'espace', 'création', 'adm'); startApp();
   };
   const jf = $('#jf'); if (jf) jf.onsubmit = async e => {
     e.preventDefault(); const d = formData(e.target), b = $('button[type=submit]', e.target); b.disabled = true;
@@ -102,14 +102,19 @@ ACT['auth-tab'] = el => renderAuth(el.dataset.v);
 ACT['reset-dev'] = async () => { if (await ask("Supprimer les données locales de cet appareil ? (les données GitHub ne sont pas touchées)", 'Réinitialiser', 1)) { [KEY.db, KEY.cfg, KEY.sess].forEach(k => { LS.del(k); SS.del(k); }); location.reload(); } };
 
 /* ---------- ossature ---------- */
-const NAV = [['home', 'Accueil', 'home'], ['ech', 'Échéances', 'list'], ['cal', 'Calendrier', 'cal'], ['ctl', 'Contrôles', 'shield'], ['plus', 'Plus', 'more']];
+const NAV = [['home', 'Accueil', 'home'], ['mens', 'Mensuelles', 'cal'], ['trim', 'Trimestrielles', 'list'], ['ann', 'Annuelles', 'file'], ['plus', 'Plus', 'more']];
+const CATS = { mensuelle: 'Mensuelle', trimestrielle: 'Trimestrielle', annuelle: 'Annuelle', autre: 'Autre' };
+const status = e => e.st === 'done' ? 'paid' : (diffDays(e.due, todayISO()) < 0 ? 'late' : diffDays(e.due, todayISO()) <= 7 ? 'soon' : 'ok');
 const scopeCos = () => { const v = visibleCos(); return S.co === 'all' ? v : v.filter(c => c.id === S.co); };
 const myEch = () => { const ids = new Set(scopeCos().filter(c => perm(c.id, 'ech', 'v')).map(c => c.id)); return live(db.ech).filter(e => ids.has(e.co)); };
 const myCtl = () => { const ids = new Set(scopeCos().filter(c => perm(c.id, 'ctl', 'v')).map(c => c.id)); return live(db.ctl).filter(e => ids.has(e.co)); };
+const allObls = () => { const Y = new Date().getFullYear(); return obls([Y - 1, Y, Y + 1], scopeCos().filter(c => perm(c.id, 'ech', 'v'))); };
+const amtOf = (o, s) => s.filed ? s.solde : s.due;
 function alertsList() {
   const t = todayISO(), out = [];
-  for (const e of myEch()) if (e.st !== 'done' && diffDays(e.due, t) <= 7) out.push({ k: 'ech', id: e.id, due: e.due, title: e.label, sub: db.companies.find(c => c.id === e.co)?.name || '' });
-  for (const d of myCtl()) if (ctlOpen(d)) for (const s of d.steps || []) { const du = stepDue(s); if (!s.done && du && diffDays(du, t) <= 7) out.push({ k: 'ctl', id: d.id, due: du, title: `${d.type} — ${s.label}`, sub: db.companies.find(c => c.id === d.co)?.name || '' }); }
+  for (const o of allObls()) { const s = oState(o); if (s.st === 'done') continue; if ((s.st === 'ok' || s.st === 'topay') && s.n > 7) continue; out.push({ k: 'obl', id: o.key, due: o.due, title: o.label, sub: coName(o.co), amt: amtOf(o, s), st: s.st }); }
+  for (const e of myEch()) if (e.st !== 'done' && diffDays(e.due, t) <= 7) out.push({ k: 'ech', id: e.id, due: e.due, title: e.label, sub: coName(e.co), amt: num(e.amount) });
+  for (const d of myCtl()) if (ctlOpen(d)) for (const s of d.steps || []) { const du = stepDue(s); if (!s.done && du && diffDays(du, t) <= 7) out.push({ k: 'ctl', id: d.id, due: du, title: `${d.type} — ${s.label}`, sub: coName(d.co), amt: 0 }); }
   return out.sort((a, b) => a.due.localeCompare(b.due));
 }
 function shell(inner) {
@@ -122,7 +127,7 @@ function shell(inner) {
 function render() {
   if (!me) return;
   if (!live(db.users).find(u => u.id === me.id && u.active !== false)) return logout();
-  const pages = { home: pHome, ech: pEch, cal: pCal, ctl: pCtl, plus: pPlus, soc: pSoc, usr: pUsers, rol: pRoles, syn: pSync, bak: pBackup, log: pLog, acc: pAcc, set: pSet };
+  const pages = { home: pHome, mens: pMens, trim: pTrim, ann: pAnn, ech: pEch, cal: pCal, ctl: pCtl, plus: pPlus, soc: pSoc, usr: pUsers, rol: pRoles, syn: pSync, bak: pBackup, log: pLog, acc: pAcc, set: pSet };
   const back = !NAV.some(n => n[0] === S.page) ? `<button class="btn sm" data-act="nav" data-v="plus" style="margin-bottom:12px">${ic('back')} Retour</button>` : '';
   const y = window.scrollY; $('#app').innerHTML = shell(back + (pages[S.page] || pHome)()); window.scrollTo(0, y);
 }
@@ -132,26 +137,30 @@ ACT.exp = el => { if (!permAny('rap', 'v')) return toast("Droit d'export manquan
 const coName = id => db.companies.find(c => c.id === id)?.name || '';
 
 /* ---------- accueil ---------- */
+const alertOpen = a => a.k === 'obl' ? `data-act="obl-open" data-key="${esc(a.id)}"` : `data-act="${a.k === 'ech' ? 'ech-edit' : 'ctl-edit'}" data-id="${esc(a.id)}"`;
 function pHome() {
-  const t = todayISO(), list = myEch(), todo = list.filter(e => e.st !== 'done'), cy = t.slice(0, 7);
-  const late = todo.filter(e => diffDays(e.due, t) < 0), soon = todo.filter(e => { const n = diffDays(e.due, t); return n >= 0 && n <= 7; });
-  const month = todo.filter(e => e.due.slice(0, 7) === cy), done = list.filter(e => e.st === 'done' && (e.paidOn || e.due).slice(0, 4) === t.slice(0, 4));
-  const al = alertsList(), dossiers = myCtl().filter(ctlOpen);
-  const d = new Date(), dl = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-  // graphique : retard + mois à venir
+  const t = todayISO(), d = new Date(), Y = d.getFullYear(), all = allObls().map(o => ({ o, s: oState(o) }));
+  const open = all.filter(x => x.s.st !== 'done'), late = open.filter(x => x.s.st === 'late' || x.s.st === 'unpaid'), fut = open.filter(x => x.s.n >= 0);
+  const pay30 = r3(fut.filter(x => x.s.n <= 30).reduce((a, x) => a + amtOf(x.o, x.s), 0)), lateAmt = r3(late.reduce((a, x) => a + amtOf(x.o, x.s), 0));
+  const soon = fut.filter(x => x.s.n <= 7), done = all.filter(x => x.o.y === Y && x.s.filed).length;
+  S.kp = { late: late.map(x => x.o), soon: soon.map(x => x.o), pay: fut.filter(x => x.s.n <= 30).map(x => x.o), done: all.filter(x => x.o.y === Y && x.s.filed).map(x => x.o) };
+  const al = alertsList(), dossiers = myCtl().filter(ctlOpen), dl = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   const H = S.hz, bars = [{ l: 'Retard', n: late.length, c: 'var(--red)' }];
-  for (let i = 0; i < H; i++) { const dd = new Date(d.getFullYear(), d.getMonth() + i, 1), k = `${dd.getFullYear()}-${pad(dd.getMonth() + 1)}`; bars.push({ l: MOIS[dd.getMonth()].slice(0, 3), n: todo.filter(e => e.due.slice(0, 7) === k).length, c: 'var(--navy2)' }); }
+  for (let i = 0; i < H; i++) { const dd = new Date(Y, d.getMonth() + i, 1), k = `${dd.getFullYear()}-${pad(dd.getMonth() + 1)}`; bars.push({ l: MOIS[dd.getMonth()].slice(0, 3), n: open.filter(x => x.o.due.slice(0, 7) === k && x.s.n >= 0).length, c: 'var(--navy2)' }); }
   const mx = Math.max(1, ...bars.map(b => b.n)), bw = 600 / bars.length;
   const chart = `<svg class="chart" viewBox="0 0 640 190" role="img" aria-label="Échéances à venir par mois">${bars.map((b, i) => { const h = Math.round(b.n / mx * 120), x = 20 + i * bw; return `<rect x="${x + 6}" y="${150 - h}" width="${bw - 12}" height="${h}" rx="6" fill="${b.c}"/><text x="${x + bw / 2}" y="${144 - h}" text-anchor="middle">${b.n || ''}</text><text x="${x + bw / 2}" y="172" text-anchor="middle">${b.l}</text>`; }).join('')}</svg>`;
   const empty = !visibleCos().length ? `<div class="card empty">Aucune société. <button class="btn pri sm" data-act="soc-add">Ajouter une société</button></div>` : '';
-  return `<div class="eyebrow">${esc(dl)}</div><h1>${greet()} ${esc(me.name.trim().split(/\s+/)[0])}</h1><p class="lead">Vos obligations fiscales en un coup d'œil.</p>${empty}
-  <div class="kpis"><div class="kpi red" data-act="goto-ech" data-st="late"><small>En retard</small><b>${late.length}</b><span>${late.length ? 'à régulariser' : 'rien en retard'}</span></div><div class="kpi org" data-act="goto-ech" data-st="soon"><small>Sous 7 jours</small><b>${soon.length}</b><span>à déposer vite</span></div><div class="kpi" data-act="goto-ech" data-st="month"><small>Ce mois</small><b>${month.length}</b><span>${MOIS[d.getMonth()]}</span></div><div class="kpi" data-act="goto-ech" data-st="done"><small>Déposées</small><b>${done.length}</b><span>en ${d.getFullYear()}</span></div></div>
-  <div class="card"><h3>À traiter</h3>${al.length ? al.slice(0, 8).map(a => { const n = diffDays(a.due, t); return `<div class="alertrow" data-act="${a.k === 'ech' ? 'ech-edit' : 'ctl-edit'}" data-id="${a.id}"><span class="badge ${n < 0 ? 'b-red' : 'b-org'}">${rel(a.due)}</span><div class="g"><b>${esc(a.title)}</b><small>${esc(a.sub)} · ${fmtD(a.due)}</small></div>${ic('chev')}</div>`; }).join('') + (al.length > 8 ? `<p class="sub" style="margin:10px 0 0">+ ${al.length - 8} autres dans Échéances</p>` : '') : '<div class="empty" style="padding:18px">Rien d\'urgent. Bien joué.</div>'}</div>
+  return `<div class="eyebrow">${esc(dl)}</div><h1>${greet()} ${esc(me.name.trim().split(/\s+/)[0])}</h1><p class="lead">Ce que vous avez à payer et à déposer.</p>${empty}
+  <div class="kpis"><div class="kpi" data-act="kpi" data-k="pay"><small>À payer sous 30 j</small><b style="font-size:1.35rem">${money(pay30)}</b><span>${fut.filter(x => x.s.n <= 30).length} échéance(s)</span></div><div class="kpi org" data-act="kpi" data-k="soon"><small>Proches (7 j)</small><b>${soon.length}</b><span>à déposer vite</span></div><div class="kpi red" data-act="kpi" data-k="late"><small>En retard</small><b>${late.length}</b><span>${lateAmt ? money(lateAmt) : late.length ? 'montant à saisir' : 'rien en retard'}</span></div><div class="kpi" data-act="kpi" data-k="done"><small>Déposées ${Y}</small><b>${done}</b><span>déclarations</span></div></div>
+  <div class="card"><h3>À traiter</h3>${al.length ? al.slice(0, 8).map(a => { const n = diffDays(a.due, t); return `<div class="alertrow" ${alertOpen(a)}><span class="badge ${n < 0 ? 'b-red' : 'b-org'}">${rel(a.due)}</span><div class="g"><b>${esc(a.title)}</b><small>${esc(a.sub)} · ${fmtD(a.due)}</small></div>${a.amt ? `<b>${money(a.amt)}</b>` : ic('chev')}</div>`; }).join('') + (al.length > 8 ? `<p class="sub" style="margin:10px 0 0">+ ${al.length - 8} autres (voir En retard / Proches)</p>` : '') : '<div class="empty" style="padding:18px">Rien d\'urgent. Bien joué.</div>'}</div>
   <div class="card"><h3>Charge des échéances</h3><div class="chips" style="margin-bottom:8px">${[3, 6, 12].map(h => `<button class="chip ${H === h ? 'on' : ''}" data-act="hz" data-v="${h}">${h} mois</button>`).join('')}</div>${chart}</div>
-  ${dossiers.length ? `<div class="card"><h3>Contrôles en cours</h3>${dossiers.slice(0, 4).map(dd => `<div class="alertrow" data-act="ctl-edit" data-id="${dd.id}"><span class="badge b-gold">${esc(dd.type)}</span><div class="g"><b>${esc(dd.ref || dd.objet || 'Dossier')}</b><small>${esc(coName(dd.co))} · ${esc(dd.st)}</small></div><b>${dd.montant ? money(dd.montant) : ''}</b></div>`).join('')}</div>` : ''}`;
+  ${dossiers.length ? `<div class="card"><h3>Contrôles et taxations en cours</h3>${dossiers.slice(0, 4).map(dd => `<div class="alertrow" data-act="ctl-edit" data-id="${dd.id}"><span class="badge b-gold">${esc(dd.type)}</span><div class="g"><b>${esc(dd.ref || dd.objet || 'Dossier')}</b><small>${esc(coName(dd.co))} · ${esc(dd.st)}</small></div><b>${dd.montant ? money(dd.montant) : ''}</b></div>`).join('')}</div>` : ''}`;
 }
 ACT.hz = el => { S.hz = +el.dataset.v; render(); };
-ACT['goto-ech'] = el => { S.f.st = el.dataset.st; S.f.cat = 'all'; S.f.y = 'all'; S.page = 'ech'; render(); };
+ACT.kpi = el => {
+  const T = { late: 'En retard', soon: 'Proches (7 jours)', pay: 'À payer sous 30 jours', done: 'Déposées cette année' }, l = (S.kp && S.kp[el.dataset.k]) || [];
+  openModal(T[el.dataset.k], l.length ? l.sort((a, b) => a.due.localeCompare(b.due)).map(o => { const s = oState(o); return `<div class="alertrow" data-act="obl-open" data-key="${esc(o.key)}"><span class="badge ${ST_LAB[s.st][1]}">${ST_LAB[s.st][0]}</span><div class="g"><b>${esc(o.label)}</b><small>${esc(coName(o.co))} · ${fmtD(o.due)}</small></div><b>${amtOf(o, s) ? money(amtOf(o, s)) : ''}</b></div>`; }).join('') : '<div class="empty">Aucune.</div>', { save: false });
+};
 
 /* ---------- échéances ---------- */
 function echFiltered() {
@@ -176,8 +185,8 @@ function echList() {
 function pEch() {
   const base = myEch(), cnt = c => base.filter(e => c === 'all' || e.cat === c).length, ys = [...new Set(base.map(e => e.due.slice(0, 4)).concat([String(new Date().getFullYear())]))].sort();
   const canC = visibleCos().some(c => perm(c.id, 'ech', 'c'));
-  return `${head('Obligations fiscales', 'Échéances', 'Mensuelles, trimestrielles, annuelles et autres obligations, par société.')}
-  <div class="acts">${canC ? `<button class="btn pri" data-act="ech-add">${ic('plus')} Nouvelle échéance</button><button class="btn" data-act="ech-gen">${ic('cal')} Générer l'année</button>` : ''}</div>
+  return `${head('Hors récaps', 'Autres échéances', 'Obligations ponctuelles saisies à la main (régularisation, échéancier, amnistie…).')}
+  <div class="acts">${canC ? `<button class="btn pri" data-act="ech-add">${ic('plus')} Nouvelle échéance</button>` : ''}</div>
   <div class="chips">${[['all', 'Toutes'], ['mensuelle', 'Mensuelles'], ['trimestrielle', 'Trimestrielles'], ['annuelle', 'Annuelles'], ['autre', 'Autres']].map(([k, l]) => `<button class="chip ${S.f.cat === k ? 'on' : ''}" data-act="fcat" data-v="${k}">${l}<small>${cnt(k)}</small></button>`).join('')}</div>
   <div class="tools"><input data-bind="f.q" placeholder="Rechercher (libellé, société, référence)" value="${esc(S.f.q)}"><select data-bind="f.st">${[['all', 'Tous les statuts'], ['todo', 'À faire'], ['late', 'En retard'], ['soon', 'Proches (7 j) et retard'], ['month', 'Ce mois'], ['done', 'Déposées']].map(([k, l]) => `<option value="${k}" ${S.f.st === k ? 'selected' : ''}>${l}</option>`).join('')}</select><select data-bind="f.y"><option value="all">Toutes les années</option>${ys.map(y => `<option ${S.f.y === y ? 'selected' : ''}>${y}</option>`).join('')}</select></div>
   ${permAny('rap', 'v') ? xbar('ech') : ''}<div id="xres">${echList()}</div>`;
@@ -205,13 +214,6 @@ ACT['ech-edit'] = el => {
   });
 };
 ACT['ech-del'] = async el => { const e = db.ech.find(x => x.id === el.dataset.id); if (!e || !perm(e.co, 'ech', 'd')) return; if (!await ask('Supprimer cette échéance ?', 'Supprimer', 1)) return; e.d = true; touch(e); logAct(`Échéance supprimée : ${e.label}`, 'suppression', 'ech'); $$('.ov').forEach(o => o.close && o.close()); render(); };
-ACT['ech-gen'] = () => {
-  const cos = visibleCos().filter(c => perm(c.id, 'ech', 'c')); if (!cos.length) return toast('Aucune société avec droit de création', 1);
-  const y = new Date().getFullYear();
-  openModal("Générer le calendrier fiscal", `<p class="lead" style="margin-top:0">Crée les échéances de l'année selon le profil fiscal de chaque société (mensuel/trimestriel, télédéclaration, CNSS, employeur…). Les échéances déjà présentes ne sont jamais dupliquées.</p>${F.s('y', 'Année', [y - 1, y, y + 1, y + 2].map(String), String(y))}<div class="cos">${cos.map(c => `<label><input class="cb" type="checkbox" name="c_${c.id}" ${S.co === 'all' || S.co === c.id ? 'checked' : ''}> ${esc(c.name)}</label>`).join('')}</div><div class="cos"><label><input class="cb" type="checkbox" name="past" checked> Marquer « déposées » les échéances déjà passées</label></div><div class="note">Dates issues des agendas DGI 2026. Les dates marquées « à confirmer » doivent être vérifiées chaque année (loi de finances, prorogations, jours fériés religieux).</div>`, {
-    onSave: d => { let n = 0; for (const c of cos) if (d['c_' + c.id]) n += genEch(c.id, +d.y, d.past); logAct(`Calendrier fiscal ${d.y} généré (${n} échéances)`, 'création', 'ech'); toast(n ? `${n} échéance(s) créée(s)` : 'Rien de nouveau à créer'); render(); }
-  });
-};
 DOCS.ech = () => ({ title: 'Échéances fiscales', subtitle: S.co === 'all' ? 'Toutes les sociétés' : coName(S.co), filename: 'echeances-fiscales', kpis: [['Nombre d\'échéances', echFiltered().length]], sections: [{ title: 'Liste des échéances', sheet: 'Échéances', cols: [{ h: 'Société', k: 'co', w: 22 }, { h: 'Libellé', k: 'label', w: 52 }, { h: 'Catégorie', k: 'cat', w: 14 }, { h: 'Date limite', k: 'due', t: 'date', w: 13 }, { h: 'Statut', k: 'st', w: 12 }, { h: 'Date de dépôt', k: 'paidOn', t: 'date', w: 13 }, { h: 'Montant (TND)', k: 'amount', t: 'money', w: 16 }, { h: 'Référence', k: 'ref', w: 18 }], rows: echFiltered().map(e => ({ co: coName(e.co), label: e.label, cat: CATS[e.cat], due: e.due, st: e.st === 'done' ? 'Déposée' : status(e) === 'late' ? 'En retard' : 'À faire', paidOn: e.paidOn, amount: e.amount, ref: e.ref })) }] });
 
 /* ---------- taxation d'office / contrôles ---------- */
