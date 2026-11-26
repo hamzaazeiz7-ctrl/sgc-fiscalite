@@ -6,7 +6,7 @@ ACT.nav = el => { let v = el.dataset.v; if (v === 'decl') v = S.dk || 'mens'; if
 ACT.theme = () => { const t = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = t; LS.set(KEY.theme, t); try { localStorage.setItem('sgcfisc.theme', t); } catch { } render(); };
 ACT.noop = () => { };
 function startApp() {
-  S.page = 'home'; render(); dailyNotify();
+  fixCodes(); S.page = 'home'; render(); dailyNotify();
   if (ghReady()) { syncState = cfg.dirty ? 'pending' : 'ok'; syncNow(); }
 }
 onSynced = r => {
@@ -25,7 +25,7 @@ document.addEventListener('change', e => {
   const el = e.target;
   if (el.matches('input[type=checkbox][data-act]')) { const f = ACT[el.dataset.act]; if (f) f(el, e); return; }
   const b = el.dataset && el.dataset.bind; if (!b) return;
-  if (b === 'co') { S.co = el.value; return render(); }
+  if (b === 'co') { S.co = el.value; if (S.page === 'cli') { if (el.value === 'all') S.page = 'soc'; else S.cid = el.value; } return render(); }
   const [o, k] = b.split('.'); S[o][k] = el.value; if (el.tagName === 'SELECT') render(); else liveList();
 });
 document.addEventListener('input', e => { const b = e.target.dataset && e.target.dataset.bind; if (!b || e.target.tagName === 'SELECT' || b === 'co') return; const [o, k] = b.split('.'); S[o][k] = e.target.value; liveList(); });

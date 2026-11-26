@@ -183,3 +183,10 @@ fieldset{border:0;margin:0;padding:0;min-width:0}
 .crumbs{color:var(--mut);font-size:.9rem;display:flex;gap:6px;align-items:center;flex-wrap:wrap}.crumbs .link{text-decoration:underline;font-size:.9rem;color:var(--navy2)}
 code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.92rem}
 .bottom button span{font-size:.78rem}
+
+[hidden]{display:none!important}
+.tbl.big{min-width:980px}.tbl tr.clk{cursor:pointer}.tbl tr.clk:hover td{background:var(--bg)}
+.tbl tr.s-late td:first-child{box-shadow:inset 4px 0 var(--red)}.tbl tr.s-soon td:first-child{box-shadow:inset 4px 0 var(--org)}.tbl tr.s-ok td:first-child{box-shadow:inset 4px 0 var(--navy2)}.tbl tr.s-paid td:first-child{box-shadow:inset 4px 0 var(--grn)}
+.tbl tfoot th{background:var(--bg);border-top:2px solid var(--bd2);color:var(--tx);font-size:.95rem;text-transform:none;letter-spacing:0;padding:12px 8px}
+.tbl.big td .badge{white-space:nowrap}
+@media(max-width:700px){.tbl.big td:first-child,.tbl.big th:first-child{position:sticky;left:0;background:var(--card);z-index:1}.tbl.big thead th:first-child{background:var(--bg)}}

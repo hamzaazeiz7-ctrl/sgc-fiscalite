@@ -25,7 +25,7 @@ const canSoc = (c, a) => me.platform || perm(c.id, 'soc', a);
 /* ---------- liste ---------- */
 function socCards() {
   const f = S.sf, q = f.q.trim().toLowerCase(), Y = new Date().getFullYear();
-  const cos = live(db.companies).filter(c => canSoc(c, 'v') && (f.st === 'all' || (c.statut || 'Actif') === f.st) && (!q || [c.name, c.code, c.activite, c.contact, c.mf].join(' ').toLowerCase().includes(q))).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+  const cos = live(db.companies).filter(c => canSoc(c, 'v') && (S.co === 'all' || c.id === S.co) && (S.co !== 'all' || f.st === 'all' || (c.statut || 'Actif') === f.st) && (!q || [c.name, c.code, c.activite, c.contact, c.mf].join(' ').toLowerCase().includes(q))).sort((a, b) => a.name.localeCompare(b.name, 'fr'));
   if (!cos.length) return `<div class="empty card">${db.companies.some(c => !c.d) ? 'Aucune société pour ce filtre.' : 'Aucune société. Créez la première avec « Nouvelle société ».'}</div>`;
   return `<div class="clients-grid">${cos.map(c => { const st = obls([Y], [c]).map(oState), open = st.filter(s => s.st !== 'done').length, late = st.filter(s => s.st === 'late' || s.st === 'unpaid').length; return `<div class="client-card" data-act="cli-open" data-id="${c.id}"><h3>${esc(c.name)}</h3><div class="sub">${esc(c.code || '')} · ${esc(c.forme || c.type || '')}${c.activite ? ' · ' + esc(c.activite) : ''}</div><div class="chips" style="margin:10px 0 0"><span class="badge b-gray">${open} obligation${open > 1 ? 's' : ''}</span>${late ? `<span class="badge b-red">${late} échéance${late > 1 ? 's' : ''} dépassée${late > 1 ? 's' : ''}</span>` : ''}${c.statut === 'Archivé' ? '<span class="badge b-gray">Archivée</span>' : ''}</div></div>`; }).join('')}</div>`;
 }
@@ -34,8 +34,8 @@ function pSoc() {
   return `${head('Où en est chaque dossier ?', 'Sociétés', '')}<div class="tools" style="grid-template-columns:1fr"><input data-bind="sf.q" type="search" placeholder="Rechercher une société…" value="${esc(S.sf.q)}"></div>
   <div class="acts"><select data-bind="sf.st" style="max-width:150px;width:auto;background:var(--card);border:1px solid var(--bd2);border-radius:14px;padding:12px 14px">${[['Actif', 'Actives'], ['Archivé', 'Archivées'], ['all', 'Toutes']].map(([v, l]) => `<option value="${v}" ${S.sf.st === v ? 'selected' : ''}>${l}</option>`).join('')}</select>${me.platform ? `<button class="btn pri" data-act="soc-add">${ic('plus')} Nouvelle société</button>` : ''}</div><div id="xres">${socCards()}</div>`;
 }
-ACT['cli-open'] = el => { S.cid = el.dataset.id; S.ctab = 'overview'; S.page = 'cli'; window.scrollTo(0, 0); render(); };
-ACT['cli-back'] = () => { S.page = 'soc'; render(); };
+ACT['cli-open'] = el => { S.cid = el.dataset.id; S.co = el.dataset.id; S.ctab = 'overview'; S.page = 'cli'; window.scrollTo(0, 0); render(); };
+ACT['cli-back'] = () => { S.page = 'soc'; S.co = 'all'; render(); };
 ACT['cli-tab'] = el => { S.ctab = el.dataset.tab; render(); };
 
 /* ---------- formulaire ---------- */
@@ -57,8 +57,8 @@ function socForm(c, isNew) {
   ${sec('Régimes')}
   <div class="grid2">${F.s('statut', 'Statut', ['Actif', 'Archivé'], g('statut', 'Actif'))}${F.t('regimeFiscal', 'Régime fiscal', g('regimeFiscal'))}${F.s('tva', 'Situation TVA', TVA_OPT, g('tva', 'À vérifier'))}${F.t('exercice', 'Exercice comptable', g('exercice'), 'placeholder="Ex. Année civile"')}${F.t('cnssRegime', 'Régime CNSS', g('cnssRegime'))}</div>
   ${sec('Profil des déclarations (calcul des échéances)')}
-  <div class="grid2">${F.s('decl', 'Rythme de déclaration', ['Mensuelle', 'Trimestrielle'], g('decl', 'Mensuelle'))}${F.s('irpp', 'Catégorie IRPP (personne physique)', IRPP_OPT, g('irpp', 'industriel'))}</div>
-  <div class="cos">${F.c('tele', 'Télédéclaration / télépaiement (déclaration mensuelle le 20)', g('tele', isNew ? true : false))}${F.c('cac', "Soumise à l'audit légal (IS au 6e mois)", g('cac'))}${F.c('expo', 'Totalement exportatrice (IS au 6e mois)', g('expo'))}${F.c('emp', "Employeur (déclaration annuelle de l'employeur)", g('emp', isNew ? true : false))}${F.c('cnss', 'Déclarations CNSS trimestrielles', g('cnss'))}</div>
+  <div class="grid2">${F.s('decl', 'Rythme de déclaration', ['Mensuelle', 'Trimestrielle'], g('decl', 'Mensuelle'))}<div class="pp-only" ${isPM(c) ? 'hidden' : ''}>${F.s('irpp', 'Catégorie IRPP', IRPP_OPT, g('irpp', 'industriel'))}</div></div>
+  <div class="cos"><div class="pm-only" ${isPM(c) ? '' : 'hidden'}>${F.c('tele', 'Télédéclaration / télépaiement (déclaration mensuelle le 20)', g('tele', isNew ? true : false))}${F.c('cac', "Soumise à l'audit légal (IS au 6e mois)", g('cac'))}${F.c('expo', 'Totalement exportatrice (IS au 6e mois)', g('expo'))}</div>${F.c('emp', "Employeur (déclaration annuelle de l'employeur)", g('emp', isNew ? true : false))}${F.c('cnss', 'Déclarations CNSS trimestrielles', g('cnss'))}</div>
   ${sec('Compléments')}${F.a('infosCompl', 'Informations complémentaires', g('infosCompl'))}${F.a('obs', 'Observations', g('obs'))}
   ${isNew ? `${sec('Identification → Banques et RIB <span class="sub">(facultatif)</span>')}<p class="sub" style="margin:0">Ajoutez autant de comptes que nécessaire ; vous pourrez aussi le faire plus tard dans la fiche (Identification). Jamais de mot de passe ni de code.</p><div id="bkc-rows"></div><datalist id="bkl">${BKS.map(b => `<option value="${b}">`).join('')}</datalist><button type="button" class="btn sm" data-act="bkc-add" style="margin-top:6px">${ic('plus')} Ajouter un compte bancaire</button>` : ''}`;
 }
@@ -79,7 +79,7 @@ ACT['soc-add'] = () => {
       for (const a of rows) { const C = bkCheck(fake, a, null); if (C.err.length) throw new Error(`Compte bancaire (${a.banque || 'sans banque'}) : ${C.err[0][1]}`); if (C.warn.length && !await ask(`Compte ${a.banque || ''} ${bkMask(a.rib || a.iban)} :\n\n${C.warn.join('\n\n')}\n\nEnregistrer quand même ?`, 'Enregistrer')) return false; }
       const c = socApply(touch({ id: uid(), code: nextCode(), hist: [{ d: nowTS(), txt: 'Fiche créée' }] }), d); db.companies.push(c);
       if (rows.length) { c.v343bk = []; const used = {}; rows.forEach(a => { const x = Object.assign({ id: uid(), created: nowTS(), hist: [], intitule: c.name, bic: '', type: 'Compte courant', ouverture: '', cloture: '', statut: 'Actif', obs: '', piece: '' }, a); if (x.principal) { if (used[x.devise]) x.principal = false; used[x.devise] = 1; } c.v343bk.push(x); bkHist(c, x, 'Compte ajouté à la création : ' + bkLab(x)); }); }
-      logAct(`Société créée : ${c.name}`, 'création', 'soc'); S.cid = c.id; S.ctab = 'overview'; S.page = 'cli'; render(); toast('Société créée');
+      logAct(`Société créée : ${c.name}`, 'création', 'soc'); S.cid = c.id; S.co = c.id; S.ctab = 'overview'; S.page = 'cli'; render(); toast('Société créée');
     }
   });
 };
@@ -296,3 +296,16 @@ ACT['fiche-open'] = el => {
     label: 'Générer le fichier', onSave: async f => { try { localStorage.setItem('sgcfisc.mode', f.mode); } catch (e) { } await exportDoc(f.fmt, ficheDoc(c, f.kind, f.mode, f.ribMode)); cHist(c, `${FICHE[f.kind]} exportée (${f.fmt.toUpperCase()}, ${f.mode})`); touch(c); }
   });
 };
+
+/* codes clients : attribue un code aux sociétés qui n'en ont pas (anciennes données) */
+function fixCodes() {
+  const miss = db.companies.filter(c => !c.d && !String(c.code || '').trim()); if (!miss.length) return;
+  miss.sort((a, b) => String(a.created || a.u || '').localeCompare(String(b.created || b.u || ''))).forEach(c => { c.code = nextCode(); touch(c); });
+  logAct('Codes clients attribués : ' + miss.map(c => c.name).join(', '), 'modification', 'soc', true);
+}
+/* formulaire société : champs selon le type de personne */
+document.addEventListener('change', e => {
+  const el = e.target; if (!el.matches || !el.matches('select[name=type]')) return; const f = el.closest('form'); if (!f) return;
+  const pm = el.value !== 'Personne physique';
+  f.querySelectorAll('.pm-only').forEach(x => { x.hidden = !pm; }); f.querySelectorAll('.pp-only').forEach(x => { x.hidden = pm; });
+});

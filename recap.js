@@ -20,10 +20,11 @@ function calcDE(v) { const n = k => num(v[k]), total = r3(n('rs') + n('css') + n
 function recTotal(kind, vals) {
   vals = vals || {};
   if (kind === 'M' || kind === 'T') return calcRec(vals).total;
-  if (kind === 'AP') return calcAP(vals).payer;
-  if (kind === 'IS') return calcIS(vals).payer;
-  if (kind === 'DE') return calcDE(vals).payer;
-  return num(vals.montant);
+  const pen = num(vals.pen);
+  if (kind === 'AP') return r3(calcAP(vals).payer + pen);
+  if (kind === 'IS') return r3(calcIS(vals).payer + pen);
+  if (kind === 'DE') return r3(calcDE(vals).payer + pen);
+  return r3(num(vals.montant) + pen);
 }
 const KIND_FULL = { M: 'mensuel', T: 'trimestriel', AP: 'acompte provisionnel', IS: 'IS', DE: 'employeur', CNSS: 'CNSS', IRPP: 'IRPP' };
 
@@ -39,19 +40,19 @@ const nf = (name, label, val, a = '') => `<label class="f"><span>${label}</span>
 function recSummaryHTML(kind, v) {
   const row = (l, x, b) => `<div style="display:flex;justify-content:space-between;gap:10px;padding:5px 0;border-bottom:1px solid var(--bd)${b ? ';font-weight:700' : ''}"><span>${l}</span><span>${money(x)}</span></div>`;
   if (kind === 'M' || kind === 'T') { const c = calcRec(v); return row('Retenues à la source (total)', c.rs) + row('TFP', c.tfp) + row('FOPROLOS', c.fop) + row('TVA à payer', c.tvaPay) + row('Report TVA suivant', c.reportNext) + row('FODEC, timbres, TCL, pénalités', r3(c.fodec + c.tcl2 + c.tcl1 + num(v.timbres) + num(v.pen))) + row('NET À PAYER', c.total, 1); }
-  if (kind === 'AP') { const c = calcAP(v); return row('Montant de l\'acompte', c.montant) + row('Reste (à déduire − montant)', c.reste) + row('À PAYER', c.payer, 1); }
-  if (kind === 'IS') { const c = calcIS(v); return row('IS normalement dû', c.du) + row('Imputations (AP, report, RS, AV/IRPP)', c.imputes) + row('Reste (report)', c.reste) + row('CSS à payer', c.css) + row('TOTAL À PAYER', c.payer, 1); }
-  if (kind === 'DE') { const c = calcDE(v); return row('Total des retenues et taxes de l\'année', c.total) + row('Déjà versé (récaps mensuels)', num(v.deja)) + row('COMPLÉMENT À PAYER', c.payer, 1); }
-  return row('MONTANT À PAYER', num(v.montant), 1);
+  if (kind === 'AP') { const c = calcAP(v); return row('Montant de l\'acompte', c.montant) + row('Reste (à déduire − montant)', c.reste) + (num(v.pen) ? row('Pénalités de retard', num(v.pen)) : '') + row('À PAYER', r3(c.payer + num(v.pen)), 1); }
+  if (kind === 'IS') { const c = calcIS(v); return row('IS normalement dû', c.du) + row('Imputations (AP, report, RS, AV/IRPP)', c.imputes) + row('Reste (report)', c.reste) + row('CSS à payer', c.css) + (num(v.pen) ? row('Pénalités de retard', num(v.pen)) : '') + row('TOTAL À PAYER', r3(c.payer + num(v.pen)), 1); }
+  if (kind === 'DE') { const c = calcDE(v); return row('Total des retenues et taxes de l\'année', c.total) + row('Déjà versé (récaps mensuels)', num(v.deja)) + (num(v.pen) ? row('Pénalités de retard', num(v.pen)) : '') + row('COMPLÉMENT À PAYER', r3(c.payer + num(v.pen)), 1); }
+  return (num(v.pen) ? row('Pénalités de retard', num(v.pen)) : '') + row('MONTANT À PAYER', r3(num(v.montant) + num(v.pen)), 1);
 }
 function recFields(kind, v, o) {
   if (kind === 'M' || kind === 'T') return RC_GROUPS.map(([t, fs], i) => `<details open style="margin-bottom:8px"><summary style="cursor:pointer;font-family:var(--serif);font-weight:700;padding:6px 0">${t}</summary><div class="grid2">${fs.map(([k, l]) => nf(k, l, v[k], k === 'tva_m' ? `data-auto="${(v.tva_m === '' || v.tva_m == null || Math.abs(num(v.tva_m) - r3(num(v.tva_b) * .19)) < .0005) ? 1 : 0}"` : '')).join('')}</div></details>`).join('');
-  if (kind === 'AP') return `<div class="grid2">${nf('base', 'Base de l\'acompte (IS dû N-1)', v.base)}${nf('taux', 'Taux (%)', v.taux ?? 30)}${nf('deduire', 'À déduire (report précédent)', v.deduire)}</div>`;
-  if (kind === 'IS') return `<div class="grid2">${nf('stock1', 'Stock N-1', v.stock1)}${nf('stock2', 'Stock N', v.stock2)}${nf('achat', 'Total achats', v.achat)}${nf('venteHT', 'Total ventes HT', v.venteHT)}${nf('resComptable', 'Résultat comptable (bénéfice)', v.resComptable)}${nf('resFiscal', 'Résultat fiscal (bénéfice)', v.resFiscal)}${nf('taux', 'Taux d\'IS (%)', v.taux ?? 20)}${nf('apPaye', 'Acomptes provisionnels payés', v.apPaye)}${nf('report', 'Ancien report', v.report)}${nf('rs', 'Retenues à la source', v.rs)}${nf('avirpp', 'AV / IRPP', v.avirpp)}</div>`;
-  if (kind === 'DE') return `<div class="grid2">${nf('nb', 'Nombre de salariés', v.nb)}${nf('sal_brut', 'Masse salariale brute de l\'année', v.sal_brut)}${nf('rs', 'Retenues à la source sur salaires', v.rs)}${nf('css', 'CSS retenue', v.css)}${nf('tfp', 'TFP', v.tfp)}${nf('fop', 'FOPROLOS', v.fop)}${nf('deja', 'Déjà versé dans les déclarations mensuelles', v.deja)}</div>`;
-  return `<div class="grid2">${nf('montant', 'Montant à payer (TND)', v.montant)}</div>`;
+  if (kind === 'AP') return `<div class="grid2">${nf('base', 'Base de l\'acompte (IS dû N-1)', v.base)}${nf('taux', 'Taux (%)', v.taux ?? 30)}${nf('deduire', 'À déduire (report précédent)', v.deduire)}${nf('pen', 'Pénalités de retard (si applicables)', v.pen)}</div>`;
+  if (kind === 'IS') return `<div class="grid2">${nf('stock1', 'Stock N-1', v.stock1)}${nf('stock2', 'Stock N', v.stock2)}${nf('achat', 'Total achats', v.achat)}${nf('venteHT', 'Total ventes HT', v.venteHT)}${nf('resComptable', 'Résultat comptable (bénéfice)', v.resComptable)}${nf('resFiscal', 'Résultat fiscal (bénéfice)', v.resFiscal)}${nf('taux', 'Taux d\'IS (%)', v.taux ?? 20)}${nf('apPaye', 'Acomptes provisionnels payés', v.apPaye)}${nf('report', 'Ancien report', v.report)}${nf('rs', 'Retenues à la source', v.rs)}${nf('avirpp', 'AV / IRPP', v.avirpp)}${nf('pen', 'Pénalités de retard (si applicables)', v.pen)}</div>`;
+  if (kind === 'DE') return `<div class="grid2">${nf('nb', 'Nombre de salariés', v.nb)}${nf('sal_brut', 'Masse salariale brute de l\'année', v.sal_brut)}${nf('rs', 'Retenues à la source sur salaires', v.rs)}${nf('css', 'CSS retenue', v.css)}${nf('tfp', 'TFP', v.tfp)}${nf('fop', 'FOPROLOS', v.fop)}${nf('deja', 'Déjà versé dans les déclarations mensuelles', v.deja)}${nf('pen', 'Pénalités de retard (si applicables)', v.pen)}</div>`;
+  return `<div class="grid2">${nf('montant', 'Montant à payer (TND)', v.montant)}${nf('pen', 'Pénalités de retard (si applicables)', v.pen)}</div>`;
 }
-const readVals = (kind, d) => { const keys = kind === 'M' || kind === 'T' ? RC_KEYS : kind === 'AP' ? ['base', 'taux', 'deduire'] : kind === 'DE' ? ['nb', 'sal_brut', 'rs', 'css', 'tfp', 'fop', 'deja'] : kind === 'IS' ? ['stock1', 'stock2', 'achat', 'venteHT', 'resComptable', 'resFiscal', 'taux', 'apPaye', 'report', 'rs', 'avirpp'] : ['montant']; const o = {}; keys.forEach(k => { o[k] = d[k] === '' || d[k] == null ? '' : +d[k]; }); return o; };
+const readVals = (kind, d) => { const keys = kind === 'M' || kind === 'T' ? RC_KEYS : kind === 'AP' ? ['base', 'taux', 'deduire', 'pen'] : kind === 'DE' ? ['nb', 'sal_brut', 'rs', 'css', 'tfp', 'fop', 'deja', 'pen'] : kind === 'IS' ? ['stock1', 'stock2', 'achat', 'venteHT', 'resComptable', 'resFiscal', 'taux', 'apPaye', 'report', 'rs', 'avirpp', 'pen'] : ['montant', 'pen']; const o = {}; keys.forEach(k => { o[k] = d[k] === '' || d[k] == null ? '' : +d[k]; }); return o; };
 document.addEventListener('input', e => {
   const f = e.target.closest && e.target.closest('form[data-recform]'); if (!f || !e.target.hasAttribute('data-rec')) return;
   if (e.target.name === 'tva_m') e.target.dataset.auto = '0';
@@ -114,10 +115,31 @@ ACT['obl-delv'] = async el => {
 
 /* ---------- pages ---------- */
 const pickCo = () => S.co !== 'all' ? coById(S.co) : null;
+const dLate = (d, due) => d ? diffDays(d, due) : 0;
+function oCalc(o) {
+  const s = oState(o), vs = (o.rec && o.rec.versions) || [], has = vs.length > 0, lv = lastV(o.rec), v0 = vs[0], t = todayISO();
+  const due = has ? s.due : 0, paid = s.paid, reste = has ? r3(Math.max(0, due - paid)) : 0, pen = has && lv ? num(lv.vals.pen) : 0, dd = v0 && v0.depDate; let late = 0, why = '';
+  if (dd) { const x = dLate(dd, o.due); if (x > 0) { late = x; why = 'dépôt'; } } else if (o.due < t) { late = dLate(t, o.due); why = 'dépôt'; }
+  if (dd) { if (reste > 0.0005) { if (o.due < t) { const x = dLate(t, o.due); if (x > late) { late = x; why = 'paiement'; } } } else if (due > 0) { const pd = vs.map(v => v.paidDate).filter(Boolean).sort().pop(), x = dLate(pd, o.due); if (pd && x > late) { late = x; why = 'paiement'; } } }
+  return { s, has, due, paid, reste, pen, late, why, dd, lv };
+}
+const oSums = os => { const L = os.map(oCalc); return { due: r3(L.reduce((a, x) => a + x.due, 0)), paid: r3(L.reduce((a, x) => a + x.paid, 0)), reste: r3(L.reduce((a, x) => a + x.reste, 0)), pen: r3(L.reduce((a, x) => a + x.pen, 0)), n: L.length, filed: L.filter(x => x.dd).length, late: L.filter(x => x.late > 0 && (!x.dd || x.reste > 0.0005 || x.why)).length }; };
+function oTable(os) {
+  const t = todayISO(), mo = n => n ? money(n) : '—';
+  const rows = os.map(o => {
+    const x = oCalc(o), s = x.s, per = o.kind === 'M' ? MOIS[o.p - 1] : o.kind === 'T' || o.kind === 'CNSS' ? QTR[o.p - 1] : o.label;
+    const dep = x.dd ? `<span class="badge b-grn">Déposée</span><div class="sub">${fmtD(x.dd)}</div>` : x.late > 0 ? '<span class="badge b-red">En retard</span>' : s.st === 'soon' ? '<span class="badge b-org">À déposer</span>' : '<span class="badge b-blu">À venir</span>';
+    const pay = !x.dd ? '<span class="sub">—</span>' : x.due <= 0 && x.pen <= 0 ? '<span class="badge b-gray">Rien à payer</span>' : x.reste <= 0.0005 ? '<span class="badge b-grn">Payée</span>' : x.paid > 0 ? '<span class="badge b-gold">Partielle</span>' : o.due < t ? '<span class="badge b-red">Impayée</span>' : '<span class="badge b-gold">À payer</span>';
+    const rc = s.rects ? `<div class="sub"><b>${s.rects} rectificative(s)</b></div>` : '';
+    return `<tr class="clk ${ST_ROW[s.st]}" data-act="obl-open" data-key="${esc(o.key)}"><td><b style="text-transform:${o.kind === 'M' ? 'capitalize' : 'none'}">${esc(per)}</b><div class="sub">échéance ${fmtD(o.due)}</div></td><td>${x.has ? 'n° 0' : '<span class="sub">Aucune déclaration</span>'}${rc}${x.has && x.lv.quit ? `<div class="sub">quittance ${esc(x.lv.quit)}</div>` : ''}</td><td>${dep}</td><td class="r">${x.has ? money(x.due) : '—'}</td><td class="r">${x.has ? mo(x.paid) : '—'}</td><td class="r"><b>${x.has ? mo(x.reste) : '—'}</b></td><td class="r">${mo(x.pen)}</td><td>${pay}</td><td>${x.late > 0 ? `<span class="late-t">${x.late} j</span><div class="sub">${x.why}</div>` : '—'}</td><td><button type="button" class="btn sm" data-act="obl-open" data-key="${esc(o.key)}">${x.has ? 'Ouvrir' : 'Saisir'}</button></td></tr>`;
+  }).join(''), S0 = oSums(os);
+  return `<div class="tbl-wrap"><table class="tbl big"><thead><tr><th>Période</th><th>Déclaration</th><th>Dépôt</th><th class="r">Déclaré</th><th class="r">Payé</th><th class="r">Reste</th><th class="r">Pénalités</th><th>Paiement</th><th>Retard</th><th></th></tr></thead><tbody>${rows}</tbody><tfoot><tr><th colspan="3">Total</th><th class="r">${money(S0.due)}</th><th class="r">${money(S0.paid)}</th><th class="r">${money(S0.reste)}</th><th class="r">${money(S0.pen)}</th><th colspan="3"></th></tr></tfoot></table></div>`;
+}
+const kpiBar = S0 => `<div class="kpis"><div class="kpi"><small>Total déclaré</small><b style="font-size:1.35rem">${money(S0.due)}</b><span>${S0.filed} / ${S0.n} déposée(s)</span></div><div class="kpi"><small>Déjà payé</small><b style="font-size:1.35rem">${money(S0.paid)}</b><span>&nbsp;</span></div><div class="kpi ${S0.reste > 0 ? 'red' : ''}"><small>Reste à payer</small><b style="font-size:1.35rem">${money(S0.reste)}</b><span>${S0.reste > 0 ? 'à régler' : 'rien à régler'}</span></div><div class="kpi ${S0.pen > 0 ? 'org' : ''}"><small>Pénalités</small><b style="font-size:1.35rem">${money(S0.pen)}</b><span>documentées dans les récaps</span></div></div>`;
 function companyPicker(kind) {
-  const cos = scopeCos().filter(c => perm(c.id, 'ech', 'v')); if (!cos.length) return '<div class="empty card">Aucune société. Créez-en une dans Plus → Sociétés.</div>';
-  const y = S.y, t = todayISO();
-  return `<p class="lead">Choisissez une société.</p>` + cos.map(c => { const os = obls([y], [c]).filter(o => kind.includes(o.kind)), sts = os.map(oState), late = sts.filter(s => s.st === 'late' || s.st === 'unpaid').length, done = sts.filter(s => s.filed).length; return `<div class="row ${late ? 's-late' : 's-ok'}" data-act="pick-co" data-id="${c.id}"><div><div class="t">${esc(c.name)}</div><small>${esc(c.type || '')} · ${c.decl === 'Trimestrielle' ? 'déclaration trimestrielle' : 'déclaration mensuelle'}</small></div><div class="amt">${done}/${os.length}</div><div class="meta">${late ? `<span class="badge b-red">${late} en retard</span>` : '<span class="badge b-grn">À jour</span>'}<span class="sub">${done} déposée(s) en ${y}</span></div></div>`; }).join('');
+  const cos = scopeCos().filter(c => perm(c.id, 'ech', 'v')); if (!cos.length) return '<div class="empty card">Aucune société. Créez-en une dans l\'onglet Sociétés.</div>';
+  const y = S.y;
+  return `<p class="lead">Choisissez une société.</p>` + cos.map(c => { const os = obls([y], [c]).filter(o => kind.includes(o.kind)), S0 = oSums(os), sts = os.map(oState), late = sts.filter(s => s.st === 'late' || s.st === 'unpaid').length; return `<div class="row ${late ? 's-late' : 's-ok'}" data-act="pick-co" data-id="${c.id}"><div><div class="t">${esc(c.name)}</div><small>${esc(c.type || '')} · ${c.decl === 'Trimestrielle' ? 'déclaration trimestrielle' : 'déclaration mensuelle'}</small></div><div class="amt">${S0.reste > 0 ? money(S0.reste) : S0.filed + '/' + S0.n}</div><div class="meta">${late ? `<span class="badge b-red">${late} en retard</span>` : '<span class="badge b-grn">À jour</span>'}<span class="sub">${S0.filed} déposée(s) en ${y}${S0.reste > 0 ? ' · reste à payer' : ''}${S0.pen > 0 ? ' · pénalités ' + money(S0.pen) : ''}</span></div></div>`; }).join('');
 }
 ACT['pick-co'] = el => { S.co = el.dataset.id; render(); };
 const yearSel = () => { const y0 = new Date().getFullYear(); return `<select data-bind="y" style="max-width:130px;width:auto;background:var(--card);border:1px solid var(--bd2);border-radius:14px;padding:12px 14px">${[y0 - 2, y0 - 1, y0, y0 + 1].map(y => `<option ${+S.y === y ? 'selected' : ''}>${y}</option>`).join('')}</select>`; };
@@ -133,11 +155,11 @@ function periodPage(title, eb, lead, kinds, sections, o = {}) {
   const c = pickCo(); const head2 = declBar() + head(eb, title, lead);
   if (!c) return head2 + `<div class="acts">${yearSel()}</div>` + companyPicker(kinds);
   const all = obls(o.years ? [+S.y - 2, +S.y - 1, +S.y, +S.y + 1] : [+S.y], [c]);
-  const secs = sections.map(([k, t, empty]) => { const os = all.filter(x => x.kind === k); if (!os.length) return empty ? `<h3 style="margin:16px 0 8px">${t}</h3><div class="card empty">${empty}</div>` : ''; const tot = r3(os.reduce((a, x) => a + oState(x).due, 0)); return `<h3 style="margin:16px 0 8px">${t} <span class="sub" style="font-family:var(--sans)">· total ${money(tot)}</span></h3>${os.map(oRow).join('')}`; }).join('');
+  const secs = sections.map(([k, t, empty]) => { const os = all.filter(x => x.kind === k); if (!os.length) return empty ? `<h3 style="margin:16px 0 8px">${t}</h3><div class="card empty">${empty}</div>` : ''; return `<h3 style="margin:16px 0 8px">${t}</h3>${oTable(os)}`; }).join(''), kp = kpiBar(oSums(sections.flatMap(([k]) => all.filter(x => x.kind === k))));
   const calc = kinds.includes('M') || kinds.includes('T');
   const ex = `<div class="xbar">Exporter : ${calc ? '<button class="btn sm" data-act="rx" data-f="xlsx">Excel (modèle récap)</button>' : '<button class="btn sm" data-act="rx" data-f="xlsx">Excel</button>'}<button class="btn sm" data-act="rx" data-f="docx">Word</button><button class="btn sm" data-act="rx" data-f="pdf">PDF</button><button class="btn sm" data-act="rx" data-f="csv">CSV</button>${o.imp ? `<button class="btn sm" data-act="rimp">Importer un récap Excel</button>` : ''}${calc ? '<button class="btn sm" data-act="rblank">Modèle vierge</button>' : ''}</div>`;
   S.pk = kinds;
-  return head2 + `<div class="acts">${yearSel()}<button class="btn" data-act="pick-co" data-id="all">${esc(c.name)} ✕</button></div>${ex}${secs}`;
+  return head2 + `<div class="acts">${yearSel()}<button class="btn" data-act="pick-co" data-id="all">${esc(c.name)} ✕</button></div>${ex}${kp}${secs}`;
 }
 const pMens = () => periodPage('Déclarations mensuelles', 'Récaps mensuels', 'Un récap par mois : RS, TFP, FOPROLOS, TVA, timbres, TCL. Rectificatives possibles pour chaque mois.', ['M', 'T'], [['M', 'Mois'], ['T', 'Trimestres (société à déclaration trimestrielle)']], { imp: true });
 const pTrim = () => periodPage('Déclarations trimestrielles', 'Acomptes provisionnels', 'Les trois acomptes provisionnels de l\'année (juin, septembre, décembre).', ['AP'], [['AP', 'Acomptes provisionnels', 'Aucun acompte pour cette société.']], { imp: true });
@@ -148,11 +170,11 @@ const pEmp = () => periodPage("Déclaration de l'employeur", 'Employeur', "Décl
 /* ---------- documents Word / PDF / CSV ---------- */
 function recDoc() {
   const c = pickCo(), y = +S.y, kinds = S.pk || ['M'], os = obls(S.page === 'emp' ? [y - 2, y - 1, y, y + 1] : [y], [c]).filter(o => kinds.includes(o.kind));
-  const rows = os.map(o => { const lv = lastV(o.rec), s = oState(o), v = lv ? lv.vals : {}, cr = (o.kind === 'M' || o.kind === 'T') ? calcRec(v) : null; return { label: o.kind === 'M' ? MOIS[o.p - 1] : o.label, rs: cr ? cr.rs : '', tfp: cr ? r3(cr.tfp + cr.fop) : '', tva: cr ? cr.tvaPay : '', autres: cr ? r3(cr.fodec + cr.tcl2 + cr.tcl1 + num(v.timbres) + num(v.pen)) : '', total: s.due || '', st: ST_LAB[s.st][0], due: o.due, quit: lv ? lv.quit : '', qd: lv ? lv.quitDate : '', rect: s.rects || '' }; });
+  const rows = os.map(o => { const lv = lastV(o.rec), s = oState(o), v = lv ? lv.vals : {}, cr = (o.kind === 'M' || o.kind === 'T') ? calcRec(v) : null; return { label: o.kind === 'M' ? MOIS[o.p - 1] : o.label, rs: cr ? cr.rs : '', tfp: cr ? r3(cr.tfp + cr.fop) : '', tva: cr ? cr.tvaPay : '', autres: cr ? r3(cr.fodec + cr.tcl2 + cr.tcl1 + num(v.timbres) + num(v.pen)) : '', total: s.due || '', paid: s.paid || '', reste: oCalc(o).reste || '', pen: oCalc(o).pen || '', st: ST_LAB[s.st][0], due: o.due, quit: lv ? lv.quit : '', qd: lv ? lv.quitDate : '', rect: s.rects || '' }; });
   const hasCalc = kinds.includes('M') || kinds.includes('T');
-  const cols = [{ h: 'Période', k: 'label', w: hasCalc ? 14 : 40 }, ...(hasCalc ? [{ h: 'RS', k: 'rs', t: 'money', w: 14 }, { h: 'TFP + FOPROLOS', k: 'tfp', t: 'money', w: 16 }, { h: 'TVA à payer', k: 'tva', t: 'money', w: 14 }, { h: 'Autres taxes', k: 'autres', t: 'money', w: 14 }] : []), { h: 'Net à payer', k: 'total', t: 'money', w: 16 }, { h: 'Statut', k: 'st', w: 18 }, { h: 'Échéance', k: 'due', t: 'date', w: 13 }, { h: 'Quittance', k: 'quit', w: 14 }, { h: 'Date quittance', k: 'qd', t: 'date', w: 13 }, { h: 'Rectif.', k: 'rect', w: 8 }];
+  const cols = [{ h: 'Période', k: 'label', w: hasCalc ? 14 : 40 }, ...(hasCalc ? [{ h: 'RS', k: 'rs', t: 'money', w: 14 }, { h: 'TFP + FOPROLOS', k: 'tfp', t: 'money', w: 16 }, { h: 'TVA à payer', k: 'tva', t: 'money', w: 14 }, { h: 'Autres taxes', k: 'autres', t: 'money', w: 14 }] : []), { h: 'Déclaré', k: 'total', t: 'money', w: 15 }, { h: 'Payé', k: 'paid', t: 'money', w: 14 }, { h: 'Reste', k: 'reste', t: 'money', w: 14 }, { h: 'Pénalités', k: 'pen', t: 'money', w: 14 }, { h: 'Statut', k: 'st', w: 18 }, { h: 'Échéance', k: 'due', t: 'date', w: 13 }, { h: 'Quittance', k: 'quit', w: 14 }, { h: 'Date quittance', k: 'qd', t: 'date', w: 13 }, { h: 'Rectif.', k: 'rect', w: 8 }];
   const tot = r3(rows.reduce((a, r) => a + num(r.total), 0));
-  return { title: `${({ M: 'Récap mensuel', T: 'Récap trimestriel', AP: 'Acomptes provisionnels', CNSS: 'Déclarations CNSS', IS: 'Déclarations annuelles', DE: "Déclaration de l'employeur" })[kinds[0]]} ${y}`, subtitle: c.name + (c.mf ? ' — MF ' + c.mf : ''), filename: `recap-${kinds[0]}-${c.name.replace(/\W+/g, '-')}-${y}`, kpis: [['Total à payer sur l\'année', money(tot)], ['Déclarations déposées', `${os.filter(o => oState(o).filed).length} / ${os.length}`]], sections: [{ title: 'Détail', sheet: 'Récap', cols, rows }] };
+  return { title: `${({ M: 'Récap mensuel', T: 'Récap trimestriel', AP: 'Acomptes provisionnels', CNSS: 'Déclarations CNSS', IS: 'Déclarations annuelles', DE: "Déclaration de l'employeur" })[kinds[0]]} ${y}`, subtitle: c.name + (c.mf ? ' — MF ' + c.mf : ''), filename: `recap-${kinds[0]}-${c.name.replace(/\W+/g, '-')}-${y}`, kpis: [['Total déclaré', money(tot)], ['Déjà payé', money(r3(rows.reduce((a, r) => a + num(r.paid), 0)))], ['Reste à payer', money(r3(rows.reduce((a, r) => a + num(r.reste), 0)))], ['Pénalités', money(r3(rows.reduce((a, r) => a + num(r.pen), 0)))], ['Déclarations déposées', `${os.filter(o => oState(o).filed).length} / ${os.length}`]], sections: [{ title: 'Détail', sheet: 'Récap', cols, rows }] };
 }
 ACT.rx = async el => {
   if (!permAny('rap', 'v')) return toast("Droit d'export manquant", 1); const c = pickCo(); if (!c) return;
