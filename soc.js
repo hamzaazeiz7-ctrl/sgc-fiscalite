@@ -95,7 +95,7 @@ ACT['soc-edit'] = el => {
 };
 ACT['soc-arch'] = async el => { const c = co1(el.dataset.id); if (!c || !canSoc(c, 'e')) return; const arch = c.statut !== 'Archivé'; if (arch && !await ask(`Archiver « ${c.name} » ? Ses échéances ne seront plus suivies.`, 'Archiver')) return; c.statut = arch ? 'Archivé' : 'Actif'; touch(c); cHist(c, arch ? 'Société archivée' : 'Société réactivée'); logAct(`Société ${arch ? 'archivée' : 'réactivée'} : ${c.name}`, 'modification', 'soc'); render(); };
 ACT['soc-del'] = async el => {
-  const c = co1(el.dataset.id); if (!c || !me.platform) return;
+  const c = co1(el.dataset.id); if (!c) return; if (!me.platform) return toast('Suppression réservée aux administrateurs de plateforme', 1);
   if (!await ask(`Supprimer la société « ${c.name} » avec ses récaps et dossiers de contrôle ? Cette action ne peut pas être annulée depuis l'application.`, 'Supprimer', 1)) return;
   c.d = true; touch(c); ['ech', 'rec', 'ctl'].forEach(k => db[k].filter(e => e.co === c.id && !e.d).forEach(e => { e.d = true; touch(e); }));
   logAct(`Société supprimée : ${c.name}`, 'suppression', 'soc'); if (S.co === c.id) S.co = 'all'; S.page = 'soc'; $$('.ov').forEach(o => o.close && o.close()); render();

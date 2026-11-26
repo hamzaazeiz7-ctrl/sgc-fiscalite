@@ -25,7 +25,7 @@ const fmtD = iso => iso ? iso.split('-').reverse().join('/') : '';
 const NF = new Intl.NumberFormat('fr-FR', { minimumFractionDigits: 3, maximumFractionDigits: 3, useGrouping: 'always' });
 const money = n => (n == null || n === '' || isNaN(n)) ? '—' : NF.format(+n).replace(/ | /g, ' ') + ' TND';
 const greet = (d = new Date()) => (d.getHours() >= 5 && d.getHours() < 17 ? 'Bonjour' : 'Bonsoir');
-const touch = r => { r.u = Date.now(); return r; };
+const touch = r => { r.u = Math.max(Date.now(), (r.u || 0) + 1); return r; }; // toujours postérieur à la version vue, même si l'horloge de l'appareil est en retard
 const live = a => (a || []).filter(r => !r.d);
 const rel = iso => { const n = diffDays(iso, todayISO()); return n === 0 ? "aujourd'hui" : n === 1 ? 'demain' : n > 1 ? `dans ${n} j` : `retard de ${-n} j`; };
 
