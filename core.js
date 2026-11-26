@@ -141,6 +141,7 @@ const GH = {
     if (!r.ok) throw this.fail(r); return (await r.json()).content.sha;
   }
 };
+const APP_VER = '3.1'; let syncInfo = { recv: false, sent: false };
 let syncState = 'off', syncTimer = null, syncBusy = false, onSynced = () => { };
 const ghReady = () => !!(cfg.gh && cfg.gh.owner && cfg.gh.repo && cfg.gh.token && cfg.pass);
 function schedSync() { if (!ghReady()) { syncState = 'off'; return; } syncState = 'pending'; clearTimeout(syncTimer); syncTimer = setTimeout(() => syncNow(), 2500); }
@@ -153,7 +154,7 @@ async function syncNow(manual) {
       if (remote && !blank) {
         const rdb = await decryptDB(remote.text, cfg.pass);
         if (rdb.meta.id !== db.meta.id) throw new Error('Ce dépôt contient un autre espace de travail');
-        const m = mergeDB(db, rdb); db = m.db; push = m.localNewer; remoteNewer = remoteNewer || m.remoteNewer; LS.set(KEY.db, db);
+        const m = mergeDB(db, rdb); if (m.remoteNewer) { try { LS.set(KEY.db + '.snap', { t: Date.now(), db }); } catch { } } db = m.db; syncInfo = { recv: m.remoteNewer, sent: m.localNewer }; push = m.localNewer; remoteNewer = remoteNewer || m.remoteNewer; LS.set(KEY.db, db);
         if (me && (!db.users.find(u => u.id === me.id && !u.d && u.active !== false))) { syncBusy = false; onSynced('kicked'); return; }
         if (me) me = db.users.find(u => u.id === me.id) || me;
       }

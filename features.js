@@ -84,9 +84,10 @@ function pSync() {
   return `${head('Administration', 'Synchronisation', 'PC, tablette et téléphone partagent les mêmes données, chiffrées sur un dépôt GitHub privé.')}
   <div class="card"><div class="badges"><span class="badge ${st[0]}">${st[1]}</span>${cfg.last ? `<span class="sub">Dernière synchro : ${new Date(cfg.last).toLocaleString('fr-FR')}</span>` : ''}</div>${cfg.err ? `<div class="note" style="background:var(--redbg);color:var(--red)">${esc(cfg.err)}</div>` : ''}
   <form id="syf">${F.t('owner', 'Propriétaire GitHub', g.owner || '')}${F.t('repo', 'Dépôt de données (PRIVÉ)', g.repo || '')}<div class="grid2">${F.t('branch', 'Branche', g.branch || 'main')}${F.t('path', 'Fichier', g.path || 'sgc-fiscalite-data.json')}</div>${F.p('token', 'Jeton GitHub (Contents : lecture/écriture)', 'autocomplete="off" placeholder="' + (g.token ? 'enregistré — laisser vide pour conserver' : '') + '"')}${F.p('pass', "Mot de passe de l'espace", 'autocomplete="off" placeholder="' + (cfg.pass ? 'enregistré — laisser vide pour conserver' : '') + '"')}<div class="acts"><button class="btn pri" type="submit">Enregistrer et synchroniser</button>${ghReady() ? `<button class="btn" type="button" data-act="sync">${ic('sync')} Synchroniser</button><button class="btn" type="button" data-act="lcode">Code de liaison</button>` : ''}</div></form></div>
+  ${diagCard()}
   <div class="note">Le code de liaison contient le jeton et le mot de passe de l'espace : collez-le une seule fois sur l'autre appareil puis supprimez-le des messageries. Le jeton doit être limité au dépôt de données.</div>`;
 }
-ACT.sync = async () => { if (!ghReady()) { S.page = 'syn'; return render(); } try { toast('Synchronisation…'); await syncNow(true); render(); toast('Synchronisé'); } catch (e) { render(); toast(e.message, 1); } };
+ACT.sync = async () => { if (!ghReady()) { S.page = 'syn'; return render(); } try { toast('Synchronisation…'); await syncNow(true); render(); toast('Synchronisé' + (syncInfo.recv ? ' — données reçues de l\'autre appareil' : ' — rien de nouveau à recevoir') + (syncInfo.sent ? ', vos modifications envoyées' : '')); } catch (e) { render(); toast(e.message, 1); } };
 ACT.lcode = async () => { const c = linkCode(); try { await navigator.clipboard.writeText(c); toast('Code copié'); } catch { openModal('Code de liaison', `<textarea rows="6" style="width:100%" readonly>${esc(c)}</textarea>`, { save: false }); } };
 document.addEventListener('submit', async e => {
   if (e.target.id !== 'syf') return; e.preventDefault(); const d = formData(e.target), g = cfg.gh || {};
@@ -136,3 +137,38 @@ document.addEventListener('submit', e => {
   if (e.target.id !== 'dlf') return; e.preventDefault(); const d = formData(e.target); const s = db.settings;
   Object.keys(DELAYS_DEF).forEach(k => { s.delays[k] = +d[k] || 0; }); s.holidays = d.hol.split(/\s+/).filter(x => /^\d{4}-\d{2}-\d{2}$/.test(x)); s.u = Date.now(); logAct('Paramètres modifiés', 'modification', 'adm'); toast('Enregistré');
 });
+
+/* ---------- diagnostic de synchronisation ---------- */
+const diagCounts = d => { const lv = a => (a || []).filter(x => !x.d); return { soc: lv(d.companies).length, rec: lv(d.rec).length, ech: lv(d.ech).length, ctl: lv(d.ctl).length, last: Math.max(0, ...COLLS.flatMap(k => (d[k] || []).map(r => r.u || 0))) }; };
+const fmtTs = t => t ? new Date(t).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }) : '—';
+function diagCard() {
+  const L = diagCounts(db), snap = LS.get(KEY.db + '.snap', null);
+  return `<div class="card"><h3>Diagnostic</h3><div class="dl"><dt>Version de l'application</dt><dd>${APP_VER}</dd><dt>Identifiant de l'espace</dt><dd><code>${esc(String(db.meta.id).slice(0, 8))}</code> (doit être identique sur tous les appareils)</dd><dt>Sur cet appareil</dt><dd>${L.soc} société(s), ${L.rec} récap(s), ${L.ech} échéance(s), ${L.ctl} dossier(s) de contrôle</dd><dt>Dernière modification locale</dt><dd>${fmtTs(L.last)}</dd><dt>Dernière synchro réussie</dt><dd>${fmtTs(cfg.last)}</dd><dt>État</dt><dd>${ghReady() ? (syncState === 'err' ? 'Erreur : ' + esc(cfg.err || '') : cfg.dirty ? 'Modifications en attente d\'envoi' : 'Synchronisé') : 'Synchronisation non configurée sur cet appareil'}</dd></div>
+  <div class="acts" style="margin-top:12px"><button class="btn" data-act="diag">Comparer avec le dépôt</button>${snap ? `<button class="btn" data-act="diag-undo">Revenir à avant la dernière réception (${fmtTs(snap.t)})</button>` : ''}</div></div>`;
+}
+ACT.diag = async () => {
+  if (!ghReady()) return toast('Synchronisation non configurée sur cet appareil', 1);
+  try {
+    toast('Lecture du dépôt…'); const r = await GH.get(cfg.gh); if (!r || !r.text.trim()) return toast('Le dépôt est vide', 1);
+    const rdb = await decryptDB(r.text, cfg.pass), same = rdb.meta.id === db.meta.id, L = diagCounts(db), R = diagCounts(rdb); let h = '';
+    if (!same) h += '<div class="note" style="background:var(--redbg);color:var(--red)"><b>Ce dépôt contient un autre espace de travail</b> que celui de cet appareil : les deux appareils ne partagent pas les mêmes données. Choisissez ci-dessous quelle version garder.</div>';
+    const rows = [['Sociétés', 'companies', 'soc'], ['Récaps', 'rec', 'rec'], ['Échéances', 'ech', 'ech'], ['Contrôles', 'ctl', 'ctl']].map(([lab, k, c]) => { const lm = new Map((db[k] || []).map(x => [x.id, x])), rm = new Map((rdb[k] || []).map(x => [x.id, x])); let ol = 0, orr = 0, ln = 0, rn = 0; lm.forEach((x, id) => { const y = rm.get(id); if (!y) ol++; else if ((x.u || 0) > (y.u || 0)) ln++; else if ((y.u || 0) > (x.u || 0)) rn++; }); rm.forEach((_, id) => { if (!lm.has(id)) orr++; }); return `<tr><td>${lab}</td><td class="r">${L[c]}</td><td class="r">${R[c]}</td><td class="r">${ol}</td><td class="r">${orr}</td><td class="r">${ln}</td><td class="r">${rn}</td></tr>`; }).join('');
+    h += `<p class="sub">Dernière modification : cet appareil ${fmtTs(L.last)} · dépôt ${fmtTs(R.last)}.</p><div class="tbl-wrap"><table class="tbl"><thead><tr><th></th><th class="r">Ici</th><th class="r">Dépôt</th><th class="r">Seulement ici</th><th class="r">Seulement dépôt</th><th class="r">Plus récent ici</th><th class="r">Plus récent dépôt</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <div class="acts">${same ? '<button class="btn pri" data-act="diag-merge">Fusionner maintenant</button>' : ''}<button class="btn" data-act="diag-pull">Remplacer cet appareil par le dépôt</button><button class="btn dng" data-act="diag-push">Remplacer le dépôt par cet appareil</button></div><p class="sub">« Fusionner » garde, pour chaque élément, la version la plus récente des deux côtés. Les deux autres boutons écrasent un côté : à n'utiliser que si vous savez quelle version est la bonne.</p>`;
+    openModal('Comparaison avec le dépôt', h, { save: false });
+  } catch (e) { toast(e.message, 1); }
+};
+ACT['diag-merge'] = async () => { $$('.ov').forEach(o => o.close && o.close()); await ACT.sync(); };
+ACT['diag-pull'] = async () => {
+  if (!await ask('Remplacer toutes les données de cet appareil par celles du dépôt ? Les modifications faites ici et pas encore envoyées seront perdues (une copie de secours est conservée).', 'Remplacer', 1)) return;
+  try { const r = await GH.get(cfg.gh), rdb = await decryptDB(r.text, cfg.pass); try { LS.set(KEY.db + '.snap', { t: Date.now(), db }); } catch { } db = rdb; LS.set(KEY.db, db); cfg.dirty = false; cfg.last = Date.now(); saveCfg(); me = db.users.find(u => u.id === me.id) || me; $$('.ov').forEach(o => o.close && o.close()); render(); toast('Cet appareil reprend les données du dépôt'); } catch (e) { toast(e.message, 1); }
+};
+ACT['diag-push'] = async () => {
+  if (!await ask('Remplacer le dépôt par les données de cet appareil ? Les autres appareils recevront cette version et ce qui n\'existe qu\'au dépôt sera perdu.', 'Remplacer le dépôt', 1)) return;
+  try { const r = await GH.get(cfg.gh); await GH.put(cfg.gh, await encryptDB(db, cfg.pass), r && r.sha); cfg.dirty = false; cfg.last = Date.now(); saveCfg(); syncState = 'ok'; $$('.ov').forEach(o => o.close && o.close()); render(); toast('Dépôt remplacé par cet appareil'); } catch (e) { toast(e.message, 1); }
+};
+ACT['diag-undo'] = async () => {
+  const s = LS.get(KEY.db + '.snap', null); if (!s) return;
+  if (!await ask('Revenir à la copie de cet appareil d\'avant la dernière réception de données ? Elle sera de nouveau fusionnée avec le dépôt à la prochaine synchro.', 'Revenir', 1)) return;
+  const cur = db; db = normalize(s.db); db.settings = { ...db.settings, u: Date.now() }; const now = Date.now(); COLLS.forEach(k => (db[k] || []).forEach(r => { r.u = now; })); LS.set(KEY.db + '.snap', { t: Date.now(), db: cur }); commit(); render(); toast('Copie restaurée');
+};
