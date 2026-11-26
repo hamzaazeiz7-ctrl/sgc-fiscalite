@@ -38,47 +38,75 @@ function xlsx(doc) {
   ];
   return zip(files);
 }
-function docx(doc) {
+function docx(doc, lg) {
+  const mode = exportMode(doc), sgc = mode !== 'MISSION', useLg = !!(lg && sgc);
   const P = (t, o = {}) => `<w:p><w:pPr><w:jc w:val="${o.jc || 'both'}"/><w:spacing w:line="${o.line || 360}" w:lineRule="auto" w:after="${o.after ?? 120}"/>${o.pb ? '<w:pageBreakBefore/>' : ''}</w:pPr><w:r><w:rPr>${o.b ? '<w:b/>' : ''}<w:color w:val="${o.color || '000000'}"/><w:sz w:val="${o.sz || 22}"/></w:rPr><w:t xml:space="preserve">${xe(t)}</w:t></w:r></w:p>`;
-  let body = P(doc.title, { sz: 40, b: 1, color: '14306B', jc: 'left' });
+  const LOGO = useLg ? (() => { const cx = 2160000, cy = Math.round(cx * lg.h / lg.w); return `<w:p><w:pPr><w:spacing w:after="160"/></w:pPr><w:r><w:drawing><wp:inline distT="0" distB="0" distL="0" distR="0"><wp:extent cx="${cx}" cy="${cy}"/><wp:docPr id="1" name="Logo SGC"/><a:graphic xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:nvPicPr><pic:cNvPr id="0" name="logo.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rId2"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${cx}" cy="${cy}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`; })() : '';
+  let body = LOGO + P(doc.title, { sz: 40, b: 1, color: '14306B', jc: 'left' });
   if (doc.subtitle) body += P(doc.subtitle, { sz: 24, color: '24489A', jc: 'left' });
-  body += P(`Édité le ${fmtD(todayISO())} — ${APP_NAME}`, { sz: 20, jc: 'left' });
+  body += P(`Édité le ${fmtD(todayISO())}${sgc ? ' — ' + APP_NAME : ''}`, { sz: 20, jc: 'left' });
+  if (doc.intro) body += P(doc.intro);
   const secs = doc.sections.filter(s => s.cols);
   body += P('Sommaire', { sz: 30, b: 1, color: '24489A', jc: 'left', after: 60 }) + secs.map((s, i) => P(`${i + 1}. ${s.title}`, { jc: 'left', after: 20 })).join('');
   if (doc.kpis && doc.kpis.length) body += P('Synthèse', { sz: 30, b: 1, color: '24489A', jc: 'left', after: 60 }) + doc.kpis.map(([l, v]) => P(`${l} : ${v}`, { jc: 'left', after: 20 })).join('');
-  const land = secs.some(s => s.cols.length > 6);
-  secs.forEach(s => {
-    body += P(s.title, { sz: 30, b: 1, color: '24489A', jc: 'left', pb: 1 });
+  const land = !doc.portrait && secs.some(s => s.cols.length > 6);
+  secs.forEach((s, si) => {
+    body += P(doc.compact ? `${si + 1}. ${s.title}` : s.title, { sz: 30, b: 1, color: '24489A', jc: 'left', pb: doc.compact ? 0 : 1 });
     const tw = land ? 14400 : 9900, ws = s.cols.map(c => c.w || 16), sum = ws.reduce((a, b) => a + b, 0);
     const tc = (t, w, h, right) => `<w:tc><w:tcPr><w:tcW w:w="${Math.round(w / sum * tw)}" w:type="dxa"/>${h ? '<w:shd w:val="clear" w:color="auto" w:fill="2B3990"/>' : ''}</w:tcPr><w:p><w:pPr><w:jc w:val="${right ? 'right' : 'left'}"/><w:spacing w:after="0"/></w:pPr><w:r><w:rPr>${h ? '<w:b/><w:color w:val="FFFFFF"/>' : '<w:color w:val="000000"/>'}<w:sz w:val="18"/></w:rPr><w:t xml:space="preserve">${xe(t)}</w:t></w:r></w:p></w:tc>`;
     const fmt = (c, v) => c.t === 'money' ? (v === '' || v == null ? '' : money(v)) : c.t === 'date' ? fmtD(v) : (v ?? '');
-    body += `<w:tbl><w:tblPr><w:tblW w:w="${tw}" w:type="dxa"/><w:tblBorders>${['top', 'left', 'bottom', 'right', 'insideH', 'insideV'].map(b => `<w:${b} w:val="single" w:sz="4" w:color="BFB8A5"/>`).join('')}</w:tblBorders></w:tblPr><w:tr>${s.cols.map((c, i) => tc(c.h, ws[i], 1)).join('')}</w:tr>${s.rows.map(r => `<w:tr>${s.cols.map((c, i) => tc(fmt(c, r[c.k]), ws[i], 0, c.t === 'money')).join('')}</w:tr>`).join('')}</w:tbl>` + P('', { after: 60 });
+    body += `<w:tbl><w:tblPr><w:tblW w:w="${tw}" w:type="dxa"/><w:tblBorders>${['top', 'left', 'bottom', 'right', 'insideH', 'insideV'].map(b => `<w:${b} w:val="single" w:sz="4" w:color="BFB8A5"/>`).join('')}</w:tblBorders></w:tblPr><w:tr>${s.cols.map((c, i) => tc(c.h, ws[i], 1)).join('')}</w:tr>${s.rows.map(r => `<w:tr>${s.cols.map((c, i) => tc(fmt(c, r[c.k]), ws[i], 0, c.t === 'money' || c.al === 'r')).join('')}</w:tr>`).join('')}</w:tbl>` + P('', { after: 60 });
   });
+  if (doc.sig && doc.sig[mode]) body += P('', { after: 120 }) + P(doc.sig[mode], { jc: 'left' });
   const sect = land ? '<w:pgSz w:w="16838" w:h="11906" w:orient="landscape"/>' : '<w:pgSz w:w="11906" w:h="16838"/>';
   return zip([
-    ['[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>`],
+    ['[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/></Types>`],
     ['_rels/.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`],
-    ['word/_rels/document.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`],
+    ['word/_rels/document.xml.rels', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>${useLg ? '<Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/logo.png"/>' : ''}</Relationships>`],
     ['word/styles.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:docDefaults><w:rPrDefault><w:rPr><w:rFonts w:ascii="Book Antiqua" w:hAnsi="Book Antiqua" w:cs="Book Antiqua"/><w:sz w:val="22"/></w:rPr></w:rPrDefault></w:docDefaults></w:styles>`],
-    ['word/document.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}<w:sectPr>${sect}<w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134"/></w:sectPr></w:body></w:document>`]
-  ]);
+    ['word/document.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing"><w:body>${body}<w:sectPr>${sect}<w:pgMar w:top="1134" w:right="1134" w:bottom="1134" w:left="1134"/></w:sectPr></w:body></w:document>`]
+  ].concat(useLg ? [['word/media/logo.png', lg.bytes]] : []));
 }
 function csv(doc) {
   const s = doc.sections.find(x => x.cols); const q = v => '"' + String(v ?? '').replace(/"/g, '""') + '"';
   const fm = (c, v) => c.t === 'date' ? fmtD(v) : c.t === 'money' ? (v === '' || v == null ? '' : String(v).replace('.', ',')) : v;
   return new Blob(['﻿' + [s.cols.map(c => q(c.h)).join(';'), ...s.rows.map(r => s.cols.map(c => q(fm(c, r[c.k]))).join(';'))].join('\r\n')], { type: 'text/csv;charset=utf-8' });
 }
-function printDoc(doc) {
-  const f = document.createElement('iframe'); f.style.cssText = 'position:fixed;width:0;height:0;border:0;right:0;bottom:0'; document.body.appendChild(f);
+function printDoc(doc, lg) {
+  const mode = exportMode(doc), sgc = mode !== 'MISSION', f = document.createElement('iframe'); f.style.cssText = 'position:fixed;width:0;height:0;border:0;right:0;bottom:0'; document.body.appendChild(f);
   const fm = (c, v) => c.t === 'money' ? (v === '' || v == null ? '' : money(v)) : c.t === 'date' ? fmtD(v) : esc(v ?? '');
-  const secs = doc.sections.filter(s => s.cols);
-  f.contentDocument.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>${esc(doc.title)}</title><style>@page{size:A4 landscape;margin:14mm}body{font:11pt/1.5 "Book Antiqua",Georgia,serif;color:#000}h1{color:#14306B;font-size:22pt;margin:0}h2{color:#24489A;font-size:15pt;margin:18px 0 6px}.s{color:#24489A}table{border-collapse:collapse;width:100%;font-size:9pt}th{background:#2B3990;color:#fff;text-align:left;padding:5px}td{border:1px solid #bfb8a5;padding:4px;text-align:justify}td.r{text-align:right}ul{margin:4px 0}</style></head><body><h1>${esc(doc.title)}</h1><div class="s">${esc(doc.subtitle || '')}</div><p>Édité le ${fmtD(todayISO())} — ${APP_NAME}</p><h2>Sommaire</h2><ul>${secs.map((s, i) => `<li>${i + 1}. ${esc(s.title)}</li>`).join('')}</ul>${(doc.kpis || []).length ? '<h2>Synthèse</h2><ul>' + doc.kpis.map(([l, v]) => `<li>${esc(l)} : ${esc(v)}</li>`).join('') + '</ul>' : ''}${secs.map(s => `<h2>${esc(s.title)}</h2><table><tr>${s.cols.map(c => `<th>${esc(c.h)}</th>`).join('')}</tr>${s.rows.map(r => `<tr>${s.cols.map(c => `<td class="${c.t === 'money' ? 'r' : ''}">${fm(c, r[c.k])}</td>`).join('')}</tr>`).join('')}</table>`).join('')}</body></html>`);
-  f.contentDocument.close(); setTimeout(() => { f.contentWindow.focus(); f.contentWindow.print(); setTimeout(() => f.remove(), 2000); }, 300);
+  const secs = doc.sections.filter(s => s.cols), pg = doc.portrait || !secs.some(s => s.cols.length > 6) && doc.compact ? 'portrait' : 'landscape';
+  f.contentDocument.write(`<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><title>${esc(doc.title)}</title><style>@page{size:A4 ${doc.portrait ? 'portrait' : 'landscape'};margin:14mm}body{font:11pt/1.5 "Book Antiqua",Georgia,serif;color:#000}h1{color:#14306B;font-size:22pt;margin:0}h2{color:#24489A;font-size:15pt;margin:18px 0 6px}.s{color:#24489A}p{text-align:justify}img.lg{height:46px;margin-bottom:10px;display:block}table{border-collapse:collapse;width:100%;font-size:9pt;page-break-inside:auto}tr{page-break-inside:avoid}th{background:#2B3990;color:#fff;text-align:left;padding:5px}td{border:1px solid #bfb8a5;padding:4px;text-align:left;vertical-align:top}td.r{text-align:right}ul{margin:4px 0}.sig{margin-top:24px}</style></head><body>${sgc && lg ? `<img class="lg" src="${lg.url}" alt="">` : ''}<h1>${esc(doc.title)}</h1><div class="s">${esc(doc.subtitle || '')}</div><p>Édité le ${fmtD(todayISO())}${sgc ? ' — ' + APP_NAME : ''}</p>${doc.intro ? `<p>${esc(doc.intro)}</p>` : ''}<h2>Sommaire</h2><ul>${secs.map((s, i) => `<li>${i + 1}. ${esc(s.title)}</li>`).join('')}</ul>${(doc.kpis || []).length ? '<h2>Synthèse</h2><ul>' + doc.kpis.map(([l, v]) => `<li>${esc(l)} : ${esc(v)}</li>`).join('') + '</ul>' : ''}${secs.map((s, si) => `<h2>${doc.compact ? si + 1 + '. ' : ''}${esc(s.title)}</h2><table><tr>${s.cols.map(c => `<th>${esc(c.h)}</th>`).join('')}</tr>${s.rows.map(r => `<tr>${s.cols.map(c => `<td class="${c.t === 'money' || c.al === 'r' ? 'r' : ''}">${fm(c, r[c.k])}</td>`).join('')}</tr>`).join('')}</table>`).join('')}${doc.sig && doc.sig[mode] ? `<p class="sig">${esc(doc.sig[mode])}</p>` : ''}</body></html>`);
+  f.contentDocument.close(); setTimeout(() => { f.contentWindow.focus(); f.contentWindow.print(); setTimeout(() => f.remove(), 2000); }, 400);
+}
+/* fiche client en Excel : une seule feuille, blocs empilés (comme l'ancienne app) */
+function ficheXlsx(doc) {
+  const cells = {}, merges = [], put = (a, v, st = 0) => { if (v !== '' && v != null) cells[a] = { v, s: st }; };
+  const mode = exportMode(doc); let r = 1;
+  put('A' + r++, doc.title, 3); put('A' + r++, `Établie le ${fmtD(todayISO())}${mode !== 'MISSION' ? ' · Sterling Gate Consulting' : ''}`, 3); r++;
+  const nc = Math.max(...doc.sections.map(s => s.cols.length), 2);
+  for (const s of doc.sections) {
+    for (let i = 0; i < nc; i++) cells[colL(i) + r] = { v: i === 0 ? s.title : '', s: 1 }; r++;
+    if (s.cols.length > 2 || s.cols[0].h !== 'Rubrique') s.cols.forEach((c, i) => put(colL(i) + r, c.h, 4)), r++;
+    const kv = s.cols.length === 2 && s.cols[0].h === 'Rubrique';
+    s.rows.forEach(row => { s.cols.forEach((c, i) => put(colL(i) + r, row[c.k], kv && i === 0 ? 4 : 0)); r++; }); r++;
+  }
+  return buildSheetXlsx(cells, merges, 'Fiche client', { defW: 22, widths: { A: 34, B: 40 }, noPane: true });
 }
 const DOCS = {};
-function exportDoc(kind, doc) {
-  const fn = (doc.filename || 'export') + '-' + todayISO();
-  if (kind === 'xlsx') download(xlsx(doc), fn + '.xlsx'); else if (kind === 'docx') download(docx(doc), fn + '.docx');
-  else if (kind === 'csv') download(csv(doc), fn + '.csv'); else if (kind === 'pdf') printDoc(doc);
+const exportMode = doc => (doc && doc.mode) || (() => { try { return localStorage.getItem('sgcfisc.mode') || 'SGC'; } catch (e) { return 'SGC'; } })();
+let _lg = null;
+async function logoAsset() {
+  if (_lg) return _lg;
+  try {
+    const r = await fetch(logoUrl('horizontal-couleur')), buf = await r.arrayBuffer(), bytes = new Uint8Array(buf); let bin = ''; for (let i = 0; i < bytes.length; i += 8192) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+    _lg = { bytes, url: 'data:image/png;base64,' + btoa(bin), w: 720, h: 122 };
+  } catch (e) { _lg = null; }
+  return _lg;
+}
+async function exportDoc(kind, doc) {
+  const fn = (doc.filename || 'export') + '-' + todayISO(), sgc = exportMode(doc) !== 'MISSION', lg = sgc && (kind === 'docx' || kind === 'pdf') ? await logoAsset() : null;
+  if (kind === 'xlsx') download(doc.fiche ? ficheXlsx(doc) : xlsx(doc), fn + '.xlsx'); else if (kind === 'docx') download(docx(doc, lg), fn + '.docx');
+  else if (kind === 'csv') download(csv(doc), fn + '.csv'); else if (kind === 'pdf') printDoc(doc, lg);
   logAct(`Export ${kind.toUpperCase()} : ${doc.title}`, 'export', 'rap', true);
 }

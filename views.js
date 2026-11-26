@@ -20,8 +20,9 @@ const IC = {
   bell: '<path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 01-3.4 0"/>', chev: '<path d="M9 18l6-6-6-6"/>', clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'
 };
 const ic = n => `<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${IC[n] || ''}</svg>`;
-const logo = (kind, cls = '') => `<img class="lg-l ${cls}" src="logos/sgc-${kind}-couleur.png" alt="Sterling Gate Consulting"><img class="lg-d ${cls}" src="logos/sgc-${kind}-blanc.png" alt="">`;
-const S = { page: 'home', sub: '', co: 'all', hz: 6, y: new Date().getFullYear(), pk: ['M'], f: { cat: 'all', st: 'all', q: '', y: String(new Date().getFullYear()) }, cf: { st: 'open', q: '' }, cal: { y: new Date().getFullYear(), m: new Date().getMonth() + 1, day: '', mode: 'grille' }, lf: { u: '', a: '', q: '' } };
+const logoUrl = k => (typeof LOGOS !== 'undefined' && LOGOS[k]) || `logos/sgc-${k}.png`;
+const logo = (kind, cls = '') => `<img class="lg-l ${cls}" src="${logoUrl(kind + '-couleur')}" alt="Sterling Gate Consulting"><img class="lg-d ${cls}" src="${logoUrl(kind + '-blanc')}" alt="">`;
+const S = { page: 'home', sub: '', co: 'all', hz: 6, y: new Date().getFullYear(), pk: ['M'], cid: '', ctab: 'overview', dk: 'mens', sf: { q: '', st: 'Actif' }, f: { cat: 'all', st: 'all', q: '', y: String(new Date().getFullYear()) }, cf: { st: 'open', q: '' }, cal: { y: new Date().getFullYear(), m: new Date().getMonth() + 1, day: '', mode: 'grille' }, lf: { u: '', a: '', q: '' } };
 const ACT = {};
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -41,7 +42,7 @@ ACT.eye = el => { const i = el.parentElement.querySelector('input'), s = i.type 
 const formData = f => { const o = {}; new FormData(f).forEach((v, k) => { o[k] = v; }); $$('input[type=checkbox]', f).forEach(c => { o[c.name] = c.checked; }); return o; };
 function openModal(title, html, o = {}) {
   const ov = document.createElement('div'); ov.className = 'ov';
-  ov.innerHTML = `<div class="sheet"><div class="sh-h"><h3>${esc(title)}</h3><button class="x" type="button" data-close aria-label="Fermer">×</button></div><form novalidate><fieldset ${o.ro ? 'disabled' : ''}><div class="sh-b">${html}</div></fieldset><div class="sh-f">${o.foot || ''}${(o.save === false || o.ro) ? '' : '<button class="btn pri" type="submit">Enregistrer</button>'}</div></form></div>`;
+  ov.innerHTML = `<div class="sheet"><div class="sh-h"><h3>${esc(title)}</h3><button class="x" type="button" data-close aria-label="Fermer">×</button></div><form novalidate><fieldset ${o.ro ? 'disabled' : ''}><div class="sh-b">${html}</div></fieldset><div class="sh-f">${o.foot || ''}${(o.save === false || o.ro) ? '' : `<button class="btn pri" type="submit">${esc(o.label || 'Enregistrer')}</button>`}</div></form></div>`;
   document.body.appendChild(ov); document.body.classList.add('noscroll');
   const close = () => { ov.remove(); document.removeEventListener('keydown', kd); if (!$('.ov')) document.body.classList.remove('noscroll'); };
   const kd = e => { if (e.key === 'Escape' && ov === [...$$('.ov')].pop()) close(); };
@@ -63,7 +64,7 @@ function ask(msg, ok = 'Confirmer', danger) {
 
 /* ---------- authentification ---------- */
 function authShell(inner) {
-  return `<div class="auth"><div class="auth-card"><div class="brand"><img class="lg-l lg-v" src="logos/sgc-vertical-couleur.png" alt="Sterling Gate Consulting"><img class="lg-d lg-v" src="logos/sgc-horizontal-blanc.png" alt=""><h1>${APP_NAME}</h1><p>Obligations et échéances fiscales — Tunisie</p></div>${inner}</div></div>`;
+  return `<div class="auth"><div class="auth-card"><div class="brand"><img class="lg-l lg-v" src="${logoUrl('vertical-couleur')}" alt="Sterling Gate Consulting"><img class="lg-d lg-v" src="${logoUrl('horizontal-blanc')}" alt=""><h1>${APP_NAME}</h1><p>Obligations et échéances fiscales — Tunisie</p></div>${inner}</div></div>`;
 }
 function renderAuth(mode = 'login') {
   const hasDb = !!db;
@@ -102,7 +103,8 @@ ACT['auth-tab'] = el => renderAuth(el.dataset.v);
 ACT['reset-dev'] = async () => { if (await ask("Supprimer les données locales de cet appareil ? (les données GitHub ne sont pas touchées)", 'Réinitialiser', 1)) { [KEY.db, KEY.cfg, KEY.sess].forEach(k => { LS.del(k); SS.del(k); }); location.reload(); } };
 
 /* ---------- ossature ---------- */
-const NAV = [['home', 'Accueil', 'home'], ['mens', 'Mensuelles', 'cal'], ['trim', 'Trimestrielles', 'list'], ['ann', 'Annuelles', 'file'], ['plus', 'Plus', 'more']];
+const NAV = [['home', 'Accueil', 'home'], ['soc', 'Sociétés', 'building'], ['decl', 'Déclarations', 'cal'], ['ctl', 'Contrôles', 'shield'], ['plus', 'Plus', 'more']];
+const DECL_PAGES = ['mens', 'trim', 'soci', 'ann', 'emp'], navKey = () => DECL_PAGES.includes(S.page) ? 'decl' : S.page === 'cli' ? 'soc' : S.page;
 const CATS = { mensuelle: 'Mensuelle', trimestrielle: 'Trimestrielle', annuelle: 'Annuelle', autre: 'Autre' };
 const status = e => e.st === 'done' ? 'paid' : (diffDays(e.due, todayISO()) < 0 ? 'late' : diffDays(e.due, todayISO()) <= 7 ? 'soon' : 'ok');
 const scopeCos = () => { const v = visibleCos(); return S.co === 'all' ? v : v.filter(c => c.id === S.co); };
@@ -119,7 +121,7 @@ function alertsList() {
 }
 function shell(inner) {
   const al = alertsList(), late = al.some(a => diffDays(a.due, todayISO()) < 0);
-  const nav = (cls, wrap) => NAV.map(([k, l, i]) => `<button data-act="nav" data-v="${k}" class="${S.page === k || (k === 'plus' && !NAV.some(n => n[0] === S.page)) ? 'on' : ''}">${ic(i)}<span>${l}</span></button>`).join('');
+  const nav = (cls, wrap) => NAV.map(([k, l, i]) => `<button data-act="nav" data-v="${k}" class="${navKey() === k || (k === 'plus' && !NAV.some(n => n[0] === navKey())) ? 'on' : ''}">${ic(i)}<span>${l}</span></button>`).join('');
   const dot = syncState === 'err' ? '<i class="dot"></i>' : (syncState === 'pending' || cfg.dirty) && ghReady() ? '<i class="dot w"></i>' : '';
   const cos = visibleCos();
   return `<div class="shell"><aside class="side"><div class="brand-s">${logo('horizontal')}<span>${APP_NAME}</span></div>${nav()}<div class="sp"></div><button data-act="logout">${ic('out')}<span>Déconnexion</span></button></aside><div class="main"><div class="top">${logo('monogramme', 'top-logo')}<select data-bind="co" aria-label="Société"><option value="all">Toutes les sociétés</option>${cos.map(c => `<option value="${c.id}" ${S.co === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select><button class="ib" data-act="sync" aria-label="Synchroniser">${ic('sync')}${dot}</button><button class="ib" data-act="theme" aria-label="Thème">${ic(document.documentElement.dataset.theme === 'dark' ? 'sun' : 'moon')}</button><button class="ib" data-act="logout" aria-label="Déconnexion">${ic('out')}</button></div><div class="page">${inner}</div></div><nav class="bottom">${nav()}</nav></div>`;
@@ -127,8 +129,8 @@ function shell(inner) {
 function render() {
   if (!me) return;
   if (!live(db.users).find(u => u.id === me.id && u.active !== false)) return logout();
-  const pages = { home: pHome, mens: pMens, trim: pTrim, ann: pAnn, ech: pEch, cal: pCal, ctl: pCtl, plus: pPlus, soc: pSoc, usr: pUsers, rol: pRoles, syn: pSync, bak: pBackup, log: pLog, acc: pAcc, set: pSet };
-  const back = !NAV.some(n => n[0] === S.page) ? `<button class="btn sm" data-act="nav" data-v="plus" style="margin-bottom:12px">${ic('back')} Retour</button>` : '';
+  const pages = { home: pHome, mens: pMens, trim: pTrim, soci: pSoci, ann: pAnn, emp: pEmp, cli: pCli, ech: pEch, cal: pCal, ctl: pCtl, plus: pPlus, soc: pSoc, usr: pUsers, rol: pRoles, syn: pSync, bak: pBackup, log: pLog, acc: pAcc, set: pSet };
+  const back = !NAV.some(n => n[0] === navKey()) ? `<button class="btn sm" data-act="nav" data-v="plus" style="margin-bottom:12px">${ic('back')} Retour</button>` : '';
   const y = window.scrollY; $('#app').innerHTML = shell(back + (pages[S.page] || pHome)()); window.scrollTo(0, y);
 }
 const head = (eb, t, lead) => `<div class="eyebrow">${eb}</div><h1>${t}</h1>${lead ? `<p class="lead">${lead}</p>` : ''}`;

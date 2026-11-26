@@ -2,7 +2,7 @@
 /* Démarrage, événements délégués, thème, synchro */
 function logout() { if (me) logAct('Déconnexion', 'déconnexion', '', true); me = null; LS.del(KEY.sess); SS.del(KEY.sess); renderAuth('login'); }
 ACT.logout = logout;
-ACT.nav = el => { S.page = el.dataset.v; window.scrollTo(0, 0); render(); };
+ACT.nav = el => { let v = el.dataset.v; if (v === 'decl') v = S.dk || 'mens'; if (DECL_PAGES.includes(v)) S.dk = v; S.page = v; window.scrollTo(0, 0); render(); };
 ACT.theme = () => { const t = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; document.documentElement.dataset.theme = t; LS.set(KEY.theme, t); try { localStorage.setItem('sgcfisc.theme', t); } catch { } render(); };
 ACT.noop = () => { };
 function startApp() {
@@ -31,7 +31,7 @@ document.addEventListener('change', e => {
 document.addEventListener('input', e => { const b = e.target.dataset && e.target.dataset.bind; if (!b || e.target.tagName === 'SELECT' || b === 'co') return; const [o, k] = b.split('.'); S[o][k] = e.target.value; liveList(); });
 function liveList() {
   const x = $('#xres'); if (!x) return;
-  if (S.page === 'ech') x.innerHTML = echList(); else if (S.page === 'ctl') x.innerHTML = ctlList();
+  if (S.page === 'soc') x.innerHTML = socCards(); else if (S.page === 'ech') x.innerHTML = echList(); else if (S.page === 'ctl') x.innerHTML = ctlList();
   else if (S.page === 'log') { const f = S.lf, q = f.q.trim().toLowerCase(); x.innerHTML = logHTML(db.log.filter(l => (!f.u || l.uid === f.u) && (!f.a || l.action === f.a) && (!q || l.text.toLowerCase().includes(q))).slice(0, 150)); }
 }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && me) { if (!$('.ov') && S.page === 'home') render(); if (ghReady() && Date.now() - (cfg.last || 0) > 20000) syncNow(); dailyNotify(); } });
